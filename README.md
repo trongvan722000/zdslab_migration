@@ -282,7 +282,7 @@ docker exec superset_lab2 python /app/fake_data/seed_query_history.py lab2
 
 ## 7. Những điểm dễ sai và giới hạn
 
-1. **`SECRET_KEY` phải giống nhau giữa 2 lab.** Mật khẩu connection được mã hoá bằng key này. Import qua API thì Lab 2 tự mã hoá lại bằng key của nó nên vẫn chạy được, nhưng với dump/restore trực tiếp thì key khác nhau sẽ làm connection lỗi. Cả 2 lab ở đây dùng chung một key.
+1. **`SECRET_KEY` giữa 2 service (ZDS Lab1,2) là 2 key khác nhau, mục đích chính dùng để hash 2 chiều mật kiệu kết nối database --> export password db connection từ ZDS Lab1(export_db_passwords.py) sẽ tự giải mã ra plaintext --> khi import vào ZDS Lab2 thì sẽ mã hoá chúng lại theo secret key của ZDS Lab2 (import_bundle_direct.py)
 2. **Owner không được giữ nguyên.** Object import vào đều thuộc user chạy import (`admin`). Hệ quả: user Alpha **không sửa được** dashboard của chính mình. Muốn giữ owner gốc cần thêm bước map owner theo `username` (chưa có script).
 3. **Trùng tên connection nhưng khác UUID** thì import báo lỗi. Đổi tên một bên trước khi import.
 4. **Lịch sử query chỉ mang được phần "nhật ký"** (ai chạy, SQL gì, lúc nào, thành công hay lỗi), không mang kết quả đã cache. **Không mang theo:** tab SQL Lab đang mở, log, alert/report.

@@ -30,10 +30,6 @@ x-mysql-common: &mysql-common
     retries: 30
   networks: [superset_lab_net]
 
-x-secret: &secret
-  # Must be identical on both labs: dbs.password / encrypted_extra are encrypted with it.
-  SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-zdslab_shared_secret_key_change_me_0123456789}
-
 services:
   # ============================ LAB 1 (source) ============================
   mysql_lab1:
@@ -81,7 +77,10 @@ services:
       postgres_lab1: { condition: service_healthy }
     ports: ["8088:8088"]
     environment:
-      <<: *secret
+      # Deliberately DIFFERENT from Lab 2's key, like real production: dbs.password / encrypted_extra
+      # are decrypted with THIS key inside Lab 1's own process (export_db_passwords.py), then re-encrypted
+      # with Lab 2's own key inside Lab 2's process (import_bundle_direct.py) - the two keys never need to match.
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY_LAB1:-zdslab1_secret_key_change_me_1111111111}
       LAB_NAME: lab1
       META_DB_URI: mysql+mysqldb://superset:superset@mysql_lab1:3306/superset_meta?charset=utf8mb4
 
@@ -120,7 +119,7 @@ services:
       postgres_lab1: { condition: service_healthy }
     ports: ["8089:8088"]
     environment:
-      <<: *secret
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY_LAB2:-zdslab2_secret_key_change_me_2222222222}
       LAB_NAME: lab2
       META_DB_URI: postgresql+psycopg2://superset:superset@postgres_lab2:5432/superset_meta
 

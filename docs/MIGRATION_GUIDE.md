@@ -151,7 +151,7 @@ Kiểu cột này **tự mã hoá khi ghi, tự giải mã khi đọc** bằng `
 
 | Nơi | Nội dung |
 |---|---|
-| `docker-compose.yml` (khối `x-secret`) | `SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-zdslab_shared_secret_key_change_me_...}`, áp cho cả hai Superset |
+| `docker-compose.yml` | `SUPERSET_SECRET_KEY_LAB1` / `SUPERSET_SECRET_KEY_LAB2`, mỗi Superset một biến riêng, **giá trị khác nhau** |
 | `superset/superset_config.py` | `SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]` |
 
 Chuỗi: biến môi trường của container → `superset_config.py` đọc thành `SECRET_KEY` → Superset dùng làm chìa khoá.
@@ -160,7 +160,7 @@ Chuỗi: biến môi trường của container → `superset_config.py` đọc t
 - Mỗi lab dùng key của chính nó. Hai lab có thể có key khác nhau.
 - Vì key khác nhau, không thể chép nguyên giá trị mã hoá từ Lab 1 sang Lab 2 rồi kỳ vọng Lab 2 giải mã được. Cách làm ở repo này: lấy mật khẩu *chữ thường* ra khỏi Lab 1 (nhờ Superset giải mã), gửi cho Lab 2 lúc import, Lab 2 **tự mã hoá lại bằng key của nó**.
 - Với phương án dump/restore (chép nguyên database), key hai bên **bắt buộc phải giống nhau**, nếu không mọi connection lỗi giải mã.
-- Trong lab này hai lab dùng chung một key cho đơn giản, nhưng với cách import hiện tại điều đó không bắt buộc.
+- Lab này cố tình đặt **hai key khác nhau** giữa Lab 1 và Lab 2 (giống thực tế production), và đã chạy thử thật: export 5 mật khẩu từ Lab 1 (giải mã bằng key Lab 1), import vào Lab 2 (mã hoá lại bằng key Lab 2 khác hẳn) — cả 7 connection sau merge vẫn `connect OK`. Xác nhận key khác nhau không phải vấn đề với cách import hiện tại.
 
 ### 4.2. Mật khẩu user: hash một chiều
 
