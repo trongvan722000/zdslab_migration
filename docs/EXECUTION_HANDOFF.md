@@ -8,9 +8,9 @@ Kế hoạch và mọi script trong repo này được xây trên môi trường
 
 | # | Câu hỏi | Vì sao chặn | Dấu hiệu đã thấy |
 |---|---|---|---|
-| 1 | Superset chạy bằng **Docker, hay cài trực tiếp (conda/pip) trên VM**? | Toàn bộ lệnh mẫu trong repo dùng `docker exec` / `docker cp`. Nếu là bare-metal, phải đổi sang SSH + activate đúng virtualenv | Lab 1 có comment `sys.path.append('/home/huyhh2/anaconda3/envs/zdslab-new/...')` — dấu hiệu cài bằng **conda trên máy chủ**, không phải container |
+| 1 | Superset chạy bằng **Docker, hay cài trực tiếp (conda/pip) trên VM**? | Toàn bộ lệnh mẫu trong repo dùng `docker exec` / `docker cp`. Nếu là bare-metal, phải đổi sang SSH + activate đúng virtualenv | Lab 1 có comment `sys.path.append('/home/<user_he_thong>/anaconda3/envs/zdslab-new/...')` — dấu hiệu cài bằng **conda trên máy chủ**, không phải container |
 | 2 | `AUTH_TYPE` thật của **Lab 2** là gì? | Quyết định user có tự đăng ký được không, và role mặc định khi tự đăng ký | File Lab 2 xem được chỉ có `#AUTH_TYPE = AUTH_DB` (bị comment) và import `AUTH_LDAP` không dùng tới — nghĩa là theo đúng file này, `AUTH_TYPE` sẽ rơi về mặc định `AUTH_DB`. Nhưng người yêu cầu migrate xác nhận đăng nhập Lab 2 dùng OTP → khả năng cao còn dòng `AUTH_TYPE = AUTH_LDAP` nằm ở nơi khác (file khác, env var) chưa thấy. **Xác nhận bằng lệnh ở mục 1.1**, đừng suy đoán |
-| 3 | Tên database metadata thật + host/port của **Lab 2** | Cần để điền đúng `META_DB_URI` | Lab 1: `mysql+pymysql://...@10.30.99.7/zdslab` (DB tên `zdslab`, driver `pymysql`). Lab 2: **đã xác nhận là Postgres** (không phải MySQL) — driver phải là `psycopg2`; host/port/tên DB thật vẫn cần hỏi lại |
+| 3 | Tên database metadata thật + host/port của **Lab 2** | Cần để điền đúng `META_DB_URI` | Lab 1: `mysql+pymysql://...@<db_host_7>/zdslab` (DB tên `zdslab`, driver `pymysql`). Lab 2: **đã xác nhận là Postgres** (không phải MySQL) — driver phải là `psycopg2`; host/port/tên DB thật vẫn cần hỏi lại |
 | 4 | `AUTH_ROLES_SYNC_AT_LOGIN` ở Lab 2 có bật không? | Nếu `True`, role vừa migrate cho user có thể bị **ghi đè về mặc định** ngay lần đăng nhập kế tiếp | Không thấy trong file mẫu → có thể chưa set (mặc định `False`), nhưng chưa xác nhận trên máy thật |
 | 5 | Cách start/stop/restart Superset (systemd? supervisor? script thủ công?) | Bước cuối cùng (`db upgrade`, `init`, restart) cần đúng lệnh | Chưa biết — hỏi người quản lý hạ tầng |
 | 6 | Lab 2 có **kết nối mạng tới toàn bộ 42 data server mà Lab 1 đang dùng** không (đặc biệt server Lab 2 chưa từng dùng)? | Nếu không, connection nạp xong vẫn không dùng được | Chưa kiểm tra |
@@ -61,7 +61,7 @@ SRC_META_URI=mysql+pymysql://<user_chi_doc>:<pass>@<host_meta_lab1>:3306/zdslab?
 ### 2.2. Đưa script vào máy chạy Lab 1 / Lab 2
 
 Docker: `docker cp fake_data/<script>.py <container>:/tmp/`.
-Bare-metal: `scp fake_data/<script>.py <host>:/tmp/`, rồi chạy bằng đúng interpreter (`/home/huyhh2/anaconda3/envs/zdslab-new/bin/python /tmp/<script>.py`, hoặc `conda activate zdslab-new && python /tmp/<script>.py`).
+Bare-metal: `scp fake_data/<script>.py <host>:/tmp/`, rồi chạy bằng đúng interpreter (`/home/<user_he_thong>/anaconda3/envs/zdslab-new/bin/python /tmp/<script>.py`, hoặc `conda activate zdslab-new && python /tmp/<script>.py`).
 
 Script cần: `SQLAlchemy`, `requests`, `PyYAML`, `pymysql`/`mysqlclient` (cho Lab 1), `psycopg2` (cho Lab 2), `werkzeug` — đều là dependency có sẵn của Superset nên nếu chạy **trong đúng virtualenv của Superset** sẽ có sẵn (Lab 2 vốn đã cần `psycopg2` để tự kết nối metadata của chính nó).
 

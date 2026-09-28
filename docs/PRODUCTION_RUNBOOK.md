@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | Đọc trước | [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) (lý thuyết, môi trường lab, các bẫy đã gặp). Tài liệu này **không nhắc lại lý thuyết**, chỉ là quy trình làm với hệ thống thật |
-| Nguồn | ZDS Lab 1, Superset **2.1.1**. Metadata: **MySQL** (`zdslab1`, host `.7`). Data: MySQL 10.30.99.7, 8, 9 và Postgres |
-| Đích | ZDS Lab 2, Superset **5.0.0**. Metadata: **Postgres** (khác engine với Lab 1 — đã xác nhận). Data: MySQL 10.30.99.7, 8; Postgres; StarRocks 10.30.99.6, 11, 12 |
+| Nguồn | ZDS Lab 1, Superset **2.1.1**. Metadata: **MySQL** (`zdslab1`, host `.7`). Data: MySQL <db_host_7>, 8, 9 và Postgres |
+| Đích | ZDS Lab 2, Superset **5.0.0**. Metadata: **Postgres** (khác engine với Lab 1 — đã xác nhận). Data: MySQL <db_host_7>, 8; Postgres; StarRocks <sr_host_6>, 11, 12 |
 | Quy mô Lab 1 | 42 connection, 35 schema, 503 dataset, 160 user (149 active, 11 inactive) |
 | Quy mô Lab 2 | 5 connection (đang có người dùng, **phải giữ nguyên**) |
 | Phương án | B: export/import + script copy dòng, **thêm vào**, không xoá gì của Lab 2 |
@@ -47,14 +47,14 @@ Tài liệu ZDS LAB chưa nói những điều sau. Chúng quyết định câu 
 | # | Câu hỏi | Vì sao quan trọng | Điền |
 |---|---|---|---|
 | 1 | Superset Lab 1 / Lab 2 chạy bằng gì: **Docker**, systemd, hay Kubernetes? Tên container/host? | Lệnh trong tài liệu dùng dạng `docker exec <container> ...`; với cách khác phải chạy cùng lệnh trong môi trường Python của Superset | |
-| 2 | **Metadata DB** của mỗi Lab nằm ở đâu (host, port, tên database)? **Đã xác nhận loại engine:** Lab 1 = MySQL (config thật: `mysql+pymysql://...@10.30.99.7/zdslab`, tên DB thật là `zdslab` chứ không phải `superset_meta`), **Lab 2 = Postgres** (không phải MySQL như tài liệu này giả định ban đầu). Host/port/tên DB thật của Lab 2 vẫn chưa xác nhận | Cần đúng driver (`psycopg2` cho Lab 2, không phải `mysqlclient`) và đúng chuỗi kết nối để copy dòng (user, lịch sử query, cờ xuất bản). Toàn bộ lệnh `mysqldump`/`mysql -e` trong tài liệu này dành cho Lab 2 phải đổi sang `pg_dump`/`psql` (xem lab đã cập nhật: `postgres_lab2` thay cho `mysql_lab2`) | |
+| 2 | **Metadata DB** của mỗi Lab nằm ở đâu (host, port, tên database)? **Đã xác nhận loại engine:** Lab 1 = MySQL (config thật: `mysql+pymysql://...@<db_host_7>/zdslab`, tên DB thật là `zdslab` chứ không phải `superset_meta`), **Lab 2 = Postgres** (không phải MySQL như tài liệu này giả định ban đầu). Host/port/tên DB thật của Lab 2 vẫn chưa xác nhận | Cần đúng driver (`psycopg2` cho Lab 2, không phải `mysqlclient`) và đúng chuỗi kết nối để copy dòng (user, lịch sử query, cờ xuất bản). Toàn bộ lệnh `mysqldump`/`mysql -e` trong tài liệu này dành cho Lab 2 phải đổi sang `pg_dump`/`psql` (xem lab đã cập nhật: `postgres_lab2` thay cho `mysql_lab2`) | |
 | 3 | Kiểu **đăng nhập**: tài khoản trong DB, **LDAP**, hay OAuth/SSO? Cả hai Lab có giống nhau không? | Cách user khớp nhau (mục 4.2). **Import không phụ thuộc đăng nhập** nếu dùng `import_bundle_direct.py` (mục 3.3); chỉ `smoke_test_api.py` và cách import bằng API cần đăng nhập (với LDAP + OTP thì phức tạp) | |
 | 4 | `SECRET_KEY` của mỗi Lab lưu ở đâu (file `superset_config.py`, biến môi trường, secret manager)? | `export_db_passwords.py` cần chạy trong môi trường Lab 1 đã nạp đúng key | |
 | 5 | Version **chính xác** (`superset version`) và chuỗi **alembic head** của mỗi Lab | Lab 2 phải ≥ Lab 1 | |
 | 6 | Có dùng Celery / Redis / cache, nhiều worker, reverse proxy? Timeout của gunicorn và proxy? | Import ZIP lớn có thể bị timeout (mục 7.4) | |
 | 7 | Có dùng **Alerts & Reports, RLS, dashboard nhúng, link rút gọn**...? | Những thứ này **không được chuyển** (mục 4.2). Kiểm kê sẽ cho biết | |
 | 8 | Ai có quyền: admin Lab 1 và Lab 2, quyền `pg_dump` metadata Lab 2 (Postgres), tài khoản **chỉ đọc** vào metadata Lab 1 | Cần cho các bước | |
-| 9 | Lab 2 có kết nối được tới **mọi máy chủ dữ liệu mà Lab 1 dùng** không (đặc biệt MySQL 10.30.99.9 mà Lab 2 chưa dùng) | Nếu không, connection nạp xong vẫn không mở được (mục 5.1) | |
+| 9 | Lab 2 có kết nối được tới **mọi máy chủ dữ liệu mà Lab 1 dùng** không (đặc biệt MySQL <db_host_9> mà Lab 2 chưa dùng) | Nếu không, connection nạp xong vẫn không mở được (mục 5.1) | |
 | 10 | Người dùng truy cập Lab 1 qua URL nào (có DNS/alias, có link nhúng ở nơi khác)? | Kế hoạch chuyển người dùng (mục 9) | |
 
 ### 2.1. Đã xác nhận trên hệ thống thật (từ người thực hiện)
@@ -345,7 +345,7 @@ EOF
 
 Sau khi import, **Lab 2 sẽ tự kết nối tới 42 data DB** (cả những cái Lab 2 chưa từng dùng). Có hai lớp chặn thường gặp:
 
-1. **Mạng / firewall:** Lab 2 có thể không tới được một số máy chủ (ví dụ MySQL 10.30.99.9).
+1. **Mạng / firewall:** Lab 2 có thể không tới được một số máy chủ (ví dụ MySQL <db_host_9>).
 2. **Tài khoản DB gắn với địa chỉ nguồn:** tài khoản MySQL kiểu `'reader'@'<IP của Lab 1>'` sẽ từ chối kết nối từ IP của Lab 2 (`Access denied for user ... @ Lab2-IP`). Postgres tương tự qua `pg_hba.conf`.
 
 Kiểm tra **trước** ngày làm:
@@ -358,8 +358,8 @@ mysql -h <host_meta_lab1> -u <user_ro> -p <db_meta_lab1> -N -e \
 # Kiểm tra mở được cổng TỪ Lab 2 (dán danh sách host:port vào)
 docker exec -i <C2> python - <<'PY'
 import socket
-for hp in """10.30.99.7:3306
-10.30.99.9:3306
+for hp in """<db_host_7>:3306
+<db_host_9>:3306
 <thêm host:port khác>""".split():
     h, p = hp.rsplit(":", 1)
     try:
