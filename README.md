@@ -252,16 +252,6 @@ Kết quả mong đợi: `MERGE OK` và `ALL CHECKS PASSED`.
 Xem bằng mắt tại http://localhost:8089: sẽ thấy 4 dashboard (1 cũ + 3 mới), 7 connection, 12 user. Vào SQL Lab → Query History thấy 14 dòng (3 cũ của Lab 2 + 11 từ Lab 1). Thử đăng nhập bằng `zds_alice` / `Passw0rd!` và `lab2_nam` / `Lab2Passw0rd!`.
 
 
-## Lưu ý quan trọng khi migrate thật (đã kiểm chứng ở lab)
-
-Chi tiết và cách xử lý: [docs/PRODUCTION_RUNBOOK.md](docs/PRODUCTION_RUNBOOK.md) mục 4.3, 4.5, 4.6.
-
-1. **Quyền của role vào dataset/database KHÔNG đi theo import.** User có role tự tạo/Gamma sẽ thấy 0 dataset ở Lab 2 (đã thử: `zds_bob` 2 dataset → 0). `fab export-roles/import-roles` cũng không sửa được vì tên quyền chứa ID cũ.
-2. **Owner bị đổi thành người import** → user Alpha không sửa được dashboard của chính mình.
-3. **`sync_users.py` chỉ ghi `ab_user` và `ab_user_role`**; không tạo role, không chép quyền gắn vào role. User đã tồn tại ở Lab 2 bị bỏ qua hoàn toàn (kể cả role): so sánh role từng user giữa hai Lab bằng SQL trực tiếp (mục 7.4 `PRODUCTION_RUNBOOK.md`).
-4. **Không cần đăng nhập để import.** `import_bundle_direct.py` chạy ngay trong container Lab 2 (hợp với đăng nhập LDAP + OTP). Chỉ `smoke_test_api.py` cần đăng nhập.
-5. **Không được chuyển:** Alerts & Reports, RLS, CSS template, annotation layer, tab SQL Lab đang mở, log, link rút gọn, yêu thích. Kiểm kê bằng SQL trực tiếp trên metadata (chỉ đọc) trước khi làm — xem ví dụ ở mục 8 phía trên và `PRODUCTION_RUNBOOK.md` mục 4.
-6. **Kiểm tra `AUTH_TYPE`** của cả hai Lab và `AUTH_ROLES_SYNC_AT_LOGIN` ở Lab 2 (runbook mục 4.6).
 
 ## 5. Rollback
 
