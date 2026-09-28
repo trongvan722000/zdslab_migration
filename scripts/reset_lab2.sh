@@ -5,8 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 docker compose stop superset_lab2
-docker exec -e MYSQL_PWD=root mysql_lab2 mysql -uroot -e \
-  "DROP DATABASE superset_meta; CREATE DATABASE superset_meta CHARACTER SET utf8mb4;"
+docker exec postgres_lab2 dropdb -U postgres superset_meta
+docker exec postgres_lab2 createdb -U postgres -O superset superset_meta
 docker compose start superset_lab2
 printf 'waiting for superset_lab2 (db upgrade + init) '
 until [ "$(docker inspect -f '{{.State.Health.Status}}' superset_lab2)" = healthy ]; do printf '.'; sleep 3; done; echo ' healthy'

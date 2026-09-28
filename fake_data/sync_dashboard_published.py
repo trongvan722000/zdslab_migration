@@ -7,6 +7,7 @@ Only dashboards that exist in the target are touched; nothing is created or dele
     docker exec superset_lab2 python /app/fake_data/sync_dashboard_published.py
 """
 import os
+import uuid as uuid_mod
 
 from sqlalchemy import MetaData, Table, create_engine, select
 
@@ -17,13 +18,22 @@ src, tgt = create_engine(SRC_META_URI), create_engine(os.environ["META_DB_URI"])
 S = Table("dashboards", MetaData(), autoload_with=src)
 T = Table("dashboards", MetaData(), autoload_with=tgt)
 
+
+def norm_uuid(v):
+    """Canonical str(uuid), regardless of storage (BINARY(16) bytes on MySQL, native UUID on Postgres)."""
+    if v is None:
+        return None
+    return str(uuid_mod.UUID(bytes=v)) if isinstance(v, bytes) else str(v)
+
+
 with src.connect() as sconn, tgt.begin() as tconn:
-    published = {r.uuid: r.published for r in sconn.execute(select(S.c.uuid, S.c.published))}
+    published = {norm_uuid(r.uuid): r.published for r in sconn.execute(select(S.c.uuid, S.c.published))}
     changed = same = 0
     for row in tconn.execute(select(T.c.id, T.c.dashboard_title, T.c.uuid, T.c.published)).all():
-        if row.uuid not in published:
+        key = norm_uuid(row.uuid)
+        if key not in published:
             continue  # a Lab 2 dashboard that does not come from Lab 1
-        want = bool(published[row.uuid])
+        want = bool(published[key])
         if bool(row.published) == want:
             same += 1
             continue

@@ -1,11 +1,12 @@
 # Lab 1 = source, Lab 2 = migration target. Only Superset METADATA is migrated;
 # the data stays where it is and both labs query the same data servers.
+# Real environment: Lab 1 metadata is MySQL, Lab 2 metadata is Postgres (different engines on purpose).
 #
-#   mysql_lab1     : superset_meta (Lab 1 metadata) + sales, crm (data)
+#   mysql_lab1     : superset_meta (Lab 1 metadata, MySQL) + sales, crm (data)
 #   postgres_lab1  : finance, warehouse, marketing (data)
-#   superset_lab1  : Superset ${SUPERSET_VERSION_LAB1:-2.1.1}, metadata -> mysql_lab1/superset_meta   http://localhost:8088
-#   mysql_lab2     : superset_meta (Lab 2 metadata, empty)
-#   superset_lab2  : Superset ${SUPERSET_VERSION_LAB2:-5.0.0}, metadata -> mysql_lab2/superset_meta   http://localhost:8089
+#   superset_lab1  : Superset ${SUPERSET_VERSION_LAB1:-2.1.1}, metadata -> mysql_lab1/superset_meta      http://localhost:8088
+#   postgres_lab2  : superset_meta (Lab 2 metadata, Postgres, empty)
+#   superset_lab2  : Superset ${SUPERSET_VERSION_LAB2:-5.0.0}, metadata -> postgres_lab2/superset_meta   http://localhost:8089
 
 x-superset-common: &superset-common
   restart: unless-stopped
@@ -85,14 +86,25 @@ services:
       META_DB_URI: mysql+mysqldb://superset:superset@mysql_lab1:3306/superset_meta?charset=utf8mb4
 
   # ============================ LAB 2 (target) ============================
-  mysql_lab2:
-    <<: *mysql-common
-    container_name: mysql_lab2
-    ports: ["3308:3306"]
+  postgres_lab2:
+    image: postgres:15
+    container_name: postgres_lab2
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      # TCP on purpose: during init scripts the temp server only listens on the unix socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    ports: ["5434:5432"]
     volumes:
-      - mysql_lab2:/var/lib/mysql
-      - ./initdb/mysql/00_superset_meta.sql:/docker-entrypoint-initdb.d/00_superset_meta.sql:ro
+      - pg_lab2:/var/lib/postgresql/data
+      - ./initdb/postgres/00_superset_meta_lab2.sql:/docker-entrypoint-initdb.d/00_superset_meta_lab2.sql:ro
       - ./backup:/backup
+    networks: [superset_lab_net]
 
   superset_lab2:
     <<: *superset-common
@@ -103,19 +115,19 @@ services:
         SUPERSET_VERSION: ${SUPERSET_VERSION_LAB2:-5.0.0}
     image: superset-lab:${SUPERSET_VERSION_LAB2:-5.0.0}
     depends_on:
-      mysql_lab2: { condition: service_healthy }
+      postgres_lab2: { condition: service_healthy }
       mysql_lab1: { condition: service_healthy }
       postgres_lab1: { condition: service_healthy }
     ports: ["8089:8088"]
     environment:
       <<: *secret
       LAB_NAME: lab2
-      META_DB_URI: mysql+mysqldb://superset:superset@mysql_lab2:3306/superset_meta?charset=utf8mb4
+      META_DB_URI: postgresql+psycopg2://superset:superset@postgres_lab2:5432/superset_meta
 
 volumes:
   mysql_lab1:
   pg_lab1:
-  mysql_lab2:
+  pg_lab2:
 
 networks:
   superset_lab_net:

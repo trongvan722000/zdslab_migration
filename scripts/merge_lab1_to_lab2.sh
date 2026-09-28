@@ -8,9 +8,9 @@ TS=$(date +%Y%m%d_%H%M%S)
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 quiet() { grep -vE 'Warning|warn|^\s*$' || true; }
 
-log "0. Safety backup of Lab 2 metadata + snapshot of what Lab 2 has now"
-docker exec -e MYSQL_PWD=root mysql_lab2 sh -c \
-  "mysqldump -uroot --single-transaction --set-gtid-purged=OFF superset_meta > /backup/lab2_before_merge_${TS}.sql"
+log "0. Safety backup of Lab 2 metadata (Postgres) + snapshot of what Lab 2 has now"
+docker exec postgres_lab2 sh -c \
+  "pg_dump -U postgres --no-owner superset_meta > /backup/lab2_before_merge_${TS}.sql"
 docker exec superset_lab2 python /app/fake_data/verify_merge.py snapshot 2>/dev/null > backup/lab2_before.json
 ls -lh "backup/lab2_before_merge_${TS}.sql"
 

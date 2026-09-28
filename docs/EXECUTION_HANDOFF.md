@@ -10,7 +10,7 @@ Kế hoạch và mọi script trong repo này được xây trên môi trường
 |---|---|---|---|
 | 1 | Superset chạy bằng **Docker, hay cài trực tiếp (conda/pip) trên VM**? | Toàn bộ lệnh mẫu trong repo dùng `docker exec` / `docker cp`. Nếu là bare-metal, phải đổi sang SSH + activate đúng virtualenv | Lab 1 có comment `sys.path.append('/home/huyhh2/anaconda3/envs/zdslab-new/...')` — dấu hiệu cài bằng **conda trên máy chủ**, không phải container |
 | 2 | `AUTH_TYPE` thật của **Lab 2** là gì? | Quyết định user có tự đăng ký được không, và role mặc định khi tự đăng ký | File Lab 2 xem được chỉ có `#AUTH_TYPE = AUTH_DB` (bị comment) và import `AUTH_LDAP` không dùng tới — nghĩa là theo đúng file này, `AUTH_TYPE` sẽ rơi về mặc định `AUTH_DB`. Nhưng người yêu cầu migrate xác nhận đăng nhập Lab 2 dùng OTP → khả năng cao còn dòng `AUTH_TYPE = AUTH_LDAP` nằm ở nơi khác (file khác, env var) chưa thấy. **Xác nhận bằng lệnh ở mục 1.1**, đừng suy đoán |
-| 3 | Tên database metadata thật + driver kết nối của **Lab 2** | Cần để điền đúng `META_DB_URI` | Lab 1: `mysql+pymysql://...@10.30.99.7/zdslab` (DB tên `zdslab`, driver `pymysql`). Lab 2: bị che trong file mẫu — **phải hỏi lại** |
+| 3 | Tên database metadata thật + host/port của **Lab 2** | Cần để điền đúng `META_DB_URI` | Lab 1: `mysql+pymysql://...@10.30.99.7/zdslab` (DB tên `zdslab`, driver `pymysql`). Lab 2: **đã xác nhận là Postgres** (không phải MySQL) — driver phải là `psycopg2`; host/port/tên DB thật vẫn cần hỏi lại |
 | 4 | `AUTH_ROLES_SYNC_AT_LOGIN` ở Lab 2 có bật không? | Nếu `True`, role vừa migrate cho user có thể bị **ghi đè về mặc định** ngay lần đăng nhập kế tiếp | Không thấy trong file mẫu → có thể chưa set (mặc định `False`), nhưng chưa xác nhận trên máy thật |
 | 5 | Cách start/stop/restart Superset (systemd? supervisor? script thủ công?) | Bước cuối cùng (`db upgrade`, `init`, restart) cần đúng lệnh | Chưa biết — hỏi người quản lý hạ tầng |
 | 6 | Lab 2 có **kết nối mạng tới toàn bộ 42 data server mà Lab 1 đang dùng** không (đặc biệt server Lab 2 chưa từng dùng)? | Nếu không, connection nạp xong vẫn không dùng được | Chưa kiểm tra |
@@ -52,18 +52,18 @@ Chạy lệnh này **bên trong** container (nếu Docker) hoặc sau khi `conda
 ### 2.1. `migration.env` (không commit, quyền `600`, xoá sau khi xong)
 
 ```bash
-META_DB_URI=mysql+pymysql://<user_ghi>:<pass>@<host_meta_lab2>:3306/<db_meta_lab2>?charset=utf8mb4
+META_DB_URI=postgresql+psycopg2://<user_ghi>:<pass>@<host_meta_lab2>:5432/<db_meta_lab2>
 SRC_META_URI=mysql+pymysql://<user_chi_doc>:<pass>@<host_meta_lab1>:3306/zdslab?charset=utf8mb4
 ```
 
-Điền đúng driver (`pymysql`, theo config thật đã xem — **không phải** `mysqlclient` như trong lab). Cài `pymysql` vào môi trường sẽ chạy script nếu chưa có (`pip install pymysql` hoặc tương đương trong conda env).
+**Hai Lab khác cả driver:** Lab 2 (Postgres) cần `psycopg2`; Lab 1 (MySQL) cần `pymysql` (theo config thật đã xem — **không phải** `mysqlclient` như trong lab). Cài thư viện tương ứng vào môi trường sẽ chạy script nếu chưa có (`pip install psycopg2-binary pymysql` hoặc tương đương trong conda env).
 
 ### 2.2. Đưa script vào máy chạy Lab 1 / Lab 2
 
 Docker: `docker cp fake_data/<script>.py <container>:/tmp/`.
 Bare-metal: `scp fake_data/<script>.py <host>:/tmp/`, rồi chạy bằng đúng interpreter (`/home/huyhh2/anaconda3/envs/zdslab-new/bin/python /tmp/<script>.py`, hoặc `conda activate zdslab-new && python /tmp/<script>.py`).
 
-Script cần: `SQLAlchemy`, `requests`, `PyYAML`, `pymysql` (hoặc `mysqlclient`), `werkzeug` — đều là dependency có sẵn của Superset nên nếu chạy **trong đúng virtualenv của Superset** sẽ có sẵn.
+Script cần: `SQLAlchemy`, `requests`, `PyYAML`, `pymysql`/`mysqlclient` (cho Lab 1), `psycopg2` (cho Lab 2), `werkzeug` — đều là dependency có sẵn của Superset nên nếu chạy **trong đúng virtualenv của Superset** sẽ có sẵn (Lab 2 vốn đã cần `psycopg2` để tự kết nối metadata của chính nó).
 
 **Không đưa vào production:** `seed_fake_metadata.py`, `seed_lab2_existing.py`, `seed_query_history.py` (tạo dữ liệu giả), `docker-compose.yml`, `scripts/*.sh` (viết cứng cho container lab).
 
@@ -74,10 +74,10 @@ Script cần: `SQLAlchemy`, `requests`, `PyYAML`, `pymysql` (hoặc `mysqlclient
 ```bash
 # --- Bước 0: kiểm kê, không sửa gì (câu SQL đầy đủ: PRODUCTION_RUNBOOK.md mục 4.1) ---
 mysql -h <host_meta_lab1> -u <user_ro> -p <db_meta_lab1> -e "SELECT COUNT(*) FROM ab_user; SELECT COUNT(*) FROM dbs;"
-mysql -h <host_meta_lab2> -u <user> -p <db_meta_lab2> -e "SELECT COUNT(*) FROM ab_user; SELECT COUNT(*) FROM dbs;"
+psql -h <host_meta_lab2> -U <user> -d <db_meta_lab2> -c "SELECT COUNT(*) FROM ab_user; SELECT COUNT(*) FROM dbs;"
 
-# --- Bước 1: backup Lab 2 (bắt buộc, không có thì dừng) ---
-mysqldump -h <host_meta_lab2> -u <user> -p --single-transaction --set-gtid-purged=OFF \
+# --- Bước 1: backup Lab 2 (bắt buộc, không có thì dừng) — Lab 2 là Postgres, dùng pg_dump ---
+pg_dump -h <host_meta_lab2> -U <user> --no-owner \
   <db_meta_lab2> > lab2_before_$(date +%F_%H%M).sql
 docker exec --env-file migration.env <C2> python /tmp/verify_merge.py snapshot > lab2_before.json
 
@@ -132,9 +132,10 @@ Mỗi lệnh in kết quả có thể đối chiếu (`OK`, `added N`, `skipped 
 ## 5. Rollback
 
 ```bash
-# dừng Lab 2, restore lại đúng bản backup ở Bước 1
-mysql -h <host_meta_lab2> -u <user> -p -e "DROP DATABASE <db_meta_lab2>; CREATE DATABASE <db_meta_lab2> CHARACTER SET utf8mb4;"
-mysql -h <host_meta_lab2> -u <user> -p <db_meta_lab2> < lab2_before_<timestamp>.sql
+# dừng Lab 2, restore lại đúng bản backup ở Bước 1 (Postgres)
+psql -h <host_meta_lab2> -U <admin> -d postgres -c "DROP DATABASE <db_meta_lab2>;"
+psql -h <host_meta_lab2> -U <admin> -d postgres -c "CREATE DATABASE <db_meta_lab2> OWNER <owner_ban_dau>;"
+psql -h <host_meta_lab2> -U <admin> -d <db_meta_lab2> -f lab2_before_<timestamp>.sql
 # khởi động lại Lab 2
 ```
 

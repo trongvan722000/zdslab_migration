@@ -10,11 +10,13 @@ Data thật (MySQL `sales`, `crm`; Postgres `finance`, `warehouse`, `marketing`)
 
 | Container | Vai trò | Truy cập |
 |---|---|---|
-| `superset_lab1` | Superset nguồn **2.1.1**. Metadata lưu ở `mysql_lab1` | http://localhost:8088 |
-| `superset_lab2` | Superset đích **5.0.0**. Metadata lưu ở `mysql_lab2` | http://localhost:8089 |
-| `mysql_lab1` | Metadata Lab 1 (`superset_meta`) + data `sales`, `crm` | localhost:3307 |
-| `postgres_lab1` | Data `finance`, `warehouse`, `marketing` | localhost:5433 |
-| `mysql_lab2` | Metadata Lab 2 (`superset_meta`) | localhost:3308 |
+| `superset_lab1` | Superset nguồn **2.1.1**. Metadata lưu ở `mysql_lab1` (**MySQL**) | http://localhost:8088 |
+| `superset_lab2` | Superset đích **5.0.0**. Metadata lưu ở `postgres_lab2` (**Postgres**) | http://localhost:8089 |
+| `mysql_lab1` | Metadata Lab 1 (`superset_meta`, MySQL) + data `sales`, `crm` | localhost:3307 |
+| `postgres_lab1` | Data `finance`, `warehouse`, `marketing` (không phải metadata) | localhost:5433 |
+| `postgres_lab2` | Metadata Lab 2 (`superset_meta`, **Postgres**) | localhost:5434 |
+
+> **Hai lab khác cả version lẫn loại database metadata:** Lab 1 lưu metadata trên MySQL, Lab 2 trên Postgres — đúng như môi trường thật (`zdslab1` MySQL, `zdslab2` Postgres). Đây là lý do một số script (`sync_dashboard_published.py`, `sync_query_history.py`, `verify_merge.py`) phải tự nhận diện dialect khi so khớp cột `uuid`/kiểu boolean giữa hai bên — xem mục 7.
 
 > **Hai lab khác version (2.1.1 → 5.0.0).** Đổi bằng biến môi trường `SUPERSET_VERSION_LAB1` / `SUPERSET_VERSION_LAB2` (mặc định 2.1.1 và 5.0.0).
 > Image 2.1.1 chỉ có bản amd64, nên trên máy Apple Silicon `superset_lab1` chạy giả lập: khởi động chậm hơn (lần đầu vài phút) nhưng vẫn chạy bình thường.
@@ -27,8 +29,9 @@ Tài khoản:
 | Admin (cả 2 lab) | `admin` / `admin` |
 | User của Lab 1 | `zds_alice` (Alpha), `zds_bob`, `zds_carol`, `zds_emma`, `zds_grace` (Gamma), `zds_david` (sql_lab), `zds_frank` (Alpha), `zds_henry` (Admin), mật khẩu `Passw0rd!` |
 | User có sẵn của Lab 2 | `lab2_nam` (Alpha), `lab2_linh` (Gamma), `lab2_hung` (Admin), mật khẩu `Lab2Passw0rd!` |
-| MySQL root | `root` / `root` |
-| Metadata DB | `superset` / `superset` |
+| MySQL root (`mysql_lab1`) | `root` / `root` |
+| Postgres superuser (`postgres_lab1`, `postgres_lab2`) | `postgres` / `postgres` |
+| Metadata DB (cả MySQL lẫn Postgres) | `superset` / `superset` |
 | Read-only vào data | `reader` / `reader_pwd` |
 
 **Trạng thái ban đầu (đã dựng sẵn):**
@@ -87,7 +90,7 @@ Chạy từ thư mục gốc của project. Muốn chạy tự động toàn b�
 ### Bước 0: Xem trạng thái trước khi merge
 
 ```bash
-docker exec -e MYSQL_PWD=root mysql_lab2 mysql -uroot superset_meta -e "
+docker exec postgres_lab2 psql -U superset -d superset_meta -c "
   SELECT 'users', COUNT(*) FROM ab_user UNION ALL SELECT 'connections', COUNT(*) FROM dbs
   UNION ALL SELECT 'datasets', COUNT(*) FROM tables UNION ALL SELECT 'charts', COUNT(*) FROM slices
   UNION ALL SELECT 'dashboards', COUNT(*) FROM dashboards;"
@@ -100,14 +103,14 @@ Kết quả phải là `4, 2, 2, 2, 1`. Đếm thêm lịch sử: `SELECT COUNT(
 Vì đang ghi vào một hệ thống có dữ liệu thật, hãy backup trước để có thể quay lại:
 
 ```bash
-docker exec -e MYSQL_PWD=root mysql_lab2 sh -c \
-  "mysqldump -uroot --single-transaction --set-gtid-purged=OFF superset_meta > /backup/lab2_before_merge.sql"
+docker exec postgres_lab2 sh -c \
+  "pg_dump -U postgres --no-owner superset_meta > /backup/lab2_before_merge.sql"
 
 # lưu danh sách những gì Lab 2 đang có, để bước kiểm tra biết cái gì "không được mất"
 docker exec superset_lab2 python /app/fake_data/verify_merge.py snapshot 2>/dev/null > backup/lab2_before.json
 ```
 
-Thư mục `./backup` trên máy được mount vào `/backup` trong `mysql_lab1` và `mysql_lab2`.
+Thư mục `./backup` trên máy được mount vào `/backup` trong `mysql_lab1` và `postgres_lab2`.
 
 ### Bước 2: Export từ Lab 1
 
@@ -266,8 +269,9 @@ Nếu merge làm hỏng Lab 2, khôi phục về bản backup ở Bước 1:
 
 ```bash
 docker compose stop superset_lab2
-docker exec -e MYSQL_PWD=root mysql_lab2 mysql -uroot -e "DROP DATABASE superset_meta; CREATE DATABASE superset_meta CHARACTER SET utf8mb4;"
-docker exec -e MYSQL_PWD=root mysql_lab2 sh -c "mysql -uroot superset_meta < /backup/lab2_before_merge.sql"
+docker exec postgres_lab2 dropdb -U postgres superset_meta
+docker exec postgres_lab2 createdb -U postgres -O superset superset_meta
+docker exec postgres_lab2 sh -c "psql -U postgres -d superset_meta -f /backup/lab2_before_merge.sql"
 docker compose start superset_lab2
 ```
 
@@ -296,17 +300,19 @@ docker exec superset_lab2 python /app/fake_data/seed_query_history.py lab2
 6. **Export từ Superset cũ có thể thiếu trường** mà bản mới có. Đã gặp: 2.1.1 không xuất `published` của dashboard (đã xử lý ở Bước 5). Khi làm thật, so sánh vài dashboard, dataset, chart quan trọng giữa hai bên sau khi nạp để tìm trường bị mất.
 7. **Hành vi SQL Lab khác nhau giữa các version.** Ví dụ Superset 2.1.1 không tự áp schema cho Postgres, nên query phải ghi `dw.fact_revenue` thay vì `fact_revenue`. Lịch sử đã copy chỉ là nhật ký; chạy lại query cũ trên 5.0.0 có thể khác kết quả.
 8. Superset MySQL có thể in warning `Cannot drop column 'druid_datasource_id'` khi `db upgrade`. Đây là warning đã biết, bỏ qua được.
+9. **Lab 1 (MySQL) và Lab 2 (Postgres) biểu diễn `uuid` và `boolean` khác nhau** — đã gặp thật khi build lab này: cột `uuid` là `BINARY(16)` (bytes) trên MySQL nhưng kiểu `UUID` gốc (chuỗi) trên Postgres, nên so sánh trực tiếp giá trị đọc từ hai bên luôn sai (`sync_dashboard_published.py`, `sync_query_history.py` phải tự chuẩn hoá về `str(uuid)` trước khi so khớp). Tương tự, `COALESCE(published, 0)` báo lỗi kiểu trên Postgres (`boolean` không tự ép sang `integer`); và cột `sql` của `saved_query` cần backtick trên MySQL (từ khoá dành riêng) nhưng backtick lại là cú pháp sai trên Postgres (`verify_merge.py` tự chọn ký tự quote theo dialect). Khi tự viết thêm script copy dòng giữa hai lab, luôn kiểm tra lại các điểm này.
 
 ## 8. Cấu trúc thư mục
 
 ```
-docker-compose.yml               5 container: 2 Superset, mysql_lab1, mysql_lab2, postgres_lab1
+docker-compose.yml               5 container: 2 Superset, mysql_lab1, postgres_lab1, postgres_lab2
 docker/Dockerfile                apache/superset:<version> + psycopg2 + mysqlclient (tự nhận biết 2.x dùng Python hệ thống, 5.x dùng venv)
 superset/superset_config.py      đọc META_DB_URI, SUPERSET_SECRET_KEY từ env; cookie riêng mỗi lab
 superset/bootstrap.sh            db upgrade -> create-admin -> init -> gunicorn
-initdb/mysql/00_superset_meta.sql   tạo DB metadata + user superset (cả 2 MySQL)
-initdb/mysql/10_lab1_data.sql       data thật sales, crm (chỉ mysql_lab1)
-initdb/postgres/10_lab1_data.sql    data thật finance, warehouse, marketing
+initdb/mysql/00_superset_meta.sql        tạo DB metadata (MySQL) + user superset, cho mysql_lab1
+initdb/mysql/10_lab1_data.sql             data thật sales, crm (chỉ mysql_lab1)
+initdb/postgres/00_superset_meta_lab2.sql tạo DB metadata (Postgres) + user superset, cho postgres_lab2
+initdb/postgres/10_lab1_data.sql         data thật finance, warehouse, marketing (postgres_lab1)
 fake_data/seed_fake_metadata.py     seed metadata cho Lab 1
 fake_data/seed_lab2_existing.py     seed metadata "có sẵn" cho Lab 2
 fake_data/sync_users.py             thêm user Lab 1 vào Lab 2 (khớp theo username)

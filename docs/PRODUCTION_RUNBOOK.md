@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | Đọc trước | [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) (lý thuyết, môi trường lab, các bẫy đã gặp). Tài liệu này **không nhắc lại lý thuyết**, chỉ là quy trình làm với hệ thống thật |
-| Nguồn | ZDS Lab 1, Superset **2.1.1**. Data: MySQL 10.30.99.7, 8, 9 và Postgres |
-| Đích | ZDS Lab 2, Superset **5.0.0**. Data: MySQL 10.30.99.7, 8; Postgres; StarRocks 10.30.99.6, 11, 12 |
+| Nguồn | ZDS Lab 1, Superset **2.1.1**. Metadata: **MySQL** (`zdslab1`, host `.7`). Data: MySQL 10.30.99.7, 8, 9 và Postgres |
+| Đích | ZDS Lab 2, Superset **5.0.0**. Metadata: **Postgres** (khác engine với Lab 1 — đã xác nhận). Data: MySQL 10.30.99.7, 8; Postgres; StarRocks 10.30.99.6, 11, 12 |
 | Quy mô Lab 1 | 42 connection, 35 schema, 503 dataset, 160 user (149 active, 11 inactive) |
 | Quy mô Lab 2 | 5 connection (đang có người dùng, **phải giữ nguyên**) |
 | Phương án | B: export/import + script copy dòng, **thêm vào**, không xoá gì của Lab 2 |
@@ -47,13 +47,13 @@ Tài liệu ZDS LAB chưa nói những điều sau. Chúng quyết định câu 
 | # | Câu hỏi | Vì sao quan trọng | Điền |
 |---|---|---|---|
 | 1 | Superset Lab 1 / Lab 2 chạy bằng gì: **Docker**, systemd, hay Kubernetes? Tên container/host? | Lệnh trong tài liệu dùng dạng `docker exec <container> ...`; với cách khác phải chạy cùng lệnh trong môi trường Python của Superset | |
-| 2 | **Metadata DB** của mỗi Lab nằm ở đâu (host, port, tên database)? Theo trao đổi: Lab 1 ở *zdslab1 MySQL .7*, Lab 2 ở *zdslab2 MySQL .9*. PDF ghi Lab 2 có nguồn dữ liệu MySQL .7, .8 | Cần chuỗi kết nối để copy dòng (user, lịch sử query, cờ xuất bản). Tránh nhầm metadata với **data** khi `mysqldump`/`DROP` | |
+| 2 | **Metadata DB** của mỗi Lab nằm ở đâu (host, port, tên database)? **Đã xác nhận loại engine:** Lab 1 = MySQL (config thật: `mysql+pymysql://...@10.30.99.7/zdslab`, tên DB thật là `zdslab` chứ không phải `superset_meta`), **Lab 2 = Postgres** (không phải MySQL như tài liệu này giả định ban đầu). Host/port/tên DB thật của Lab 2 vẫn chưa xác nhận | Cần đúng driver (`psycopg2` cho Lab 2, không phải `mysqlclient`) và đúng chuỗi kết nối để copy dòng (user, lịch sử query, cờ xuất bản). Toàn bộ lệnh `mysqldump`/`mysql -e` trong tài liệu này dành cho Lab 2 phải đổi sang `pg_dump`/`psql` (xem lab đã cập nhật: `postgres_lab2` thay cho `mysql_lab2`) | |
 | 3 | Kiểu **đăng nhập**: tài khoản trong DB, **LDAP**, hay OAuth/SSO? Cả hai Lab có giống nhau không? | Cách user khớp nhau (mục 4.2). **Import không phụ thuộc đăng nhập** nếu dùng `import_bundle_direct.py` (mục 3.3); chỉ `smoke_test_api.py` và cách import bằng API cần đăng nhập (với LDAP + OTP thì phức tạp) | |
 | 4 | `SECRET_KEY` của mỗi Lab lưu ở đâu (file `superset_config.py`, biến môi trường, secret manager)? | `export_db_passwords.py` cần chạy trong môi trường Lab 1 đã nạp đúng key | |
 | 5 | Version **chính xác** (`superset version`) và chuỗi **alembic head** của mỗi Lab | Lab 2 phải ≥ Lab 1 | |
 | 6 | Có dùng Celery / Redis / cache, nhiều worker, reverse proxy? Timeout của gunicorn và proxy? | Import ZIP lớn có thể bị timeout (mục 7.4) | |
 | 7 | Có dùng **Alerts & Reports, RLS, dashboard nhúng, link rút gọn**...? | Những thứ này **không được chuyển** (mục 4.2). Kiểm kê sẽ cho biết | |
-| 8 | Ai có quyền: admin Lab 1 và Lab 2, quyền `mysqldump` metadata Lab 2, tài khoản **chỉ đọc** vào metadata Lab 1 | Cần cho các bước | |
+| 8 | Ai có quyền: admin Lab 1 và Lab 2, quyền `pg_dump` metadata Lab 2 (Postgres), tài khoản **chỉ đọc** vào metadata Lab 1 | Cần cho các bước | |
 | 9 | Lab 2 có kết nối được tới **mọi máy chủ dữ liệu mà Lab 1 dùng** không (đặc biệt MySQL 10.30.99.9 mà Lab 2 chưa dùng) | Nếu không, connection nạp xong vẫn không mở được (mục 5.1) | |
 | 10 | Người dùng truy cập Lab 1 qua URL nào (có DNS/alias, có link nhúng ở nơi khác)? | Kế hoạch chuyển người dùng (mục 9) | |
 
@@ -66,8 +66,9 @@ Tài liệu ZDS LAB chưa nói những điều sau. Chúng quyết định câu 
 | List Roles ở Lab 1 | **Có role** | Phải xử lý role và quyền của role (mục 4.3-A). Cần biết đó là role tự tạo hay chỉ role mặc định |
 | Cách đăng nhập | Mật khẩu là **mã OTP + Google Authenticator** | Import không cần đăng nhập (mục 3.3). Kiểm tra role bằng dữ liệu, không đăng nhập thay người khác được (mục 8.4) |
 | Cấu hình đăng nhập (đoạn đã xem) | Có `AUTH_USER_REGISTRATION = True`, `AUTH_USER_REGISTRATION_ROLE = "Gamma"`, `AUTH_ROLES_MAPPING = {"*": [...]}`, `AUTH_ROLE = "Gamma"`; `AUTH_TYPE` **không thấy** trong đoạn | Xem mục 4.6 |
+| Loại metadata DB | Lab 1 = **MySQL**, Lab 2 = **Postgres** (khác engine nhau, xác nhận trực tiếp từ người thực hiện) | Mọi lệnh `mysqldump`/`mysql -e` áp dụng cho Lab 2 trong tài liệu này phải đổi sang `pg_dump`/`psql`/`dropdb`/`createdb`; driver kết nối `SRC_META_URI`/`META_DB_URI` cũng khác nhau theo Lab (`mysqlclient` vs `psycopg2`) |
 
-**Vẫn chưa biết:** `AUTH_TYPE` thật, `AUTH_ROLES_SYNC_AT_LOGIN`, Lab 2 có cấu hình giống Lab 1 không, cách triển khai (Docker hay không), vị trí metadata (mục 2).
+**Vẫn chưa biết:** `AUTH_TYPE` thật, `AUTH_ROLES_SYNC_AT_LOGIN`, cách triển khai (Docker hay không, xem mục 1), host/port/tên DB thật của metadata Postgres Lab 2 (mục 2).
 
 ---
 
@@ -98,9 +99,9 @@ Các script `sync_*`, `verify_merge` cần biết **chuỗi kết nối metadata
 Tạo file `migration.env` (quyền `600`, đặt ngoài git, xoá sau khi xong):
 
 ```bash
-# Đích: metadata DB của Lab 2 (tài khoản có quyền ghi)
-META_DB_URI=mysql+mysqldb://<user>:<pass>@<host_meta_lab2>:3306/<db_meta_lab2>?charset=utf8mb4
-# Nguồn: metadata DB của Lab 1 (tài khoản CHỈ ĐỌC)
+# Đích: metadata DB của Lab 2 — Postgres (tài khoản có quyền ghi)
+META_DB_URI=postgresql+psycopg2://<user>:<pass>@<host_meta_lab2>:5432/<db_meta_lab2>
+# Nguồn: metadata DB của Lab 1 — MySQL (tài khoản CHỈ ĐỌC)
 SRC_META_URI=mysql+mysqldb://<user_ro>:<pass>@<host_meta_lab1>:3306/<db_meta_lab1>?charset=utf8mb4
 # Địa chỉ Superset Lab 2 NHÌN TỪ BÊN TRONG nơi chạy script
 SUPERSET_URL=http://localhost:8088
@@ -108,6 +109,7 @@ SUPERSET_URL=http://localhost:8088
 AUTH_PROVIDER=db
 ```
 
+- **Hai Lab khác driver:** Lab 2 cần `psycopg2` (Postgres), Lab 1 cần `mysqlclient`/`pymysql` (MySQL). Nếu chạy script trong container Lab 2, đảm bảo `psycopg2` có sẵn (thường có sẵn vì Lab 2 vốn đã cần nó để tự kết nối metadata của chính nó).
 - Ký tự đặc biệt trong mật khẩu (`@`, `:`, `/`, `%`) phải **mã hoá URL** (ví dụ `@` → `%40`).
 - Lấy nhanh URI hiện tại của một Lab: `python -c "from superset.app import create_app; print(create_app().config['SQLALCHEMY_DATABASE_URI'])"` (in ra cả mật khẩu, cẩn thận).
 - Dùng file này với Docker: `docker exec --env-file migration.env <container> python ...`. Với máy không dùng Docker: `set -a; source migration.env; set +a`.
@@ -382,7 +384,7 @@ Lỗi mở cổng (`FAIL`) hoặc `Access denied` → nhờ người quản lý 
 | (Chỉ khi dùng API) tài khoản **Admin** đăng nhập được | `smoke_test_api.py` | LDAP + OTP: xem mục 3.3. Hoặc admin tài khoản `db` dùng chung (cần bảo mật duyệt) |
 | Tài khoản DB **chỉ đọc** vào metadata Lab 1 (`SELECT`) | `sync_*`, `verify_merge`, câu SQL kiểm kê mục 4.1 | Nếu Lab 2 **không nối được** metadata Lab 1: `mysqldump` các bảng cần (`ab_user`, `ab_role`, `ab_user_role`, `dbs`, `dashboards`, `query`, `saved_query`, `alembic_version`) từ Lab 1 sang một MySQL tạm gần Lab 2 rồi trỏ `SRC_META_URI` vào đó *(chưa thử)* |
 | Tài khoản DB **ghi** vào metadata Lab 2 | `sync_*` | Có thể dùng chính tài khoản Superset Lab 2 |
-| Quyền `mysqldump` metadata Lab 2 | Backup | |
+| Quyền `pg_dump` metadata Lab 2 (Postgres) | Backup | |
 | Quyền chạy lệnh trong container/host Lab 1 và Lab 2 | Export, `db upgrade`, restart | |
 | **Truy cập được `SECRET_KEY` của Lab 1?** | Không cần biết giá trị, nhưng script phải chạy **trong môi trường đã nạp key đó** | Nếu key đã bị đổi kể từ khi lưu mật khẩu connection, không giải mã được (lỗi `ValueError`); khi đó dùng kho mật khẩu công ty |
 
@@ -412,17 +414,17 @@ Nguyên tắc: bản sao Lab 2 phải **giống thật nhất có thể**: cùng
 Bản mẫu (dựa trên repo này, *chưa chạy thử với dữ liệu thật; điều chỉnh cấu hình cho khớp Lab 2 thật*):
 
 ```bash
-# 1) MySQL tạm
+# 1) Postgres tạm (Lab 2 thật dùng Postgres, không phải MySQL)
 docker network create rehearsal
-docker run -d --name rh_mysql --network rehearsal -e MYSQL_ROOT_PASSWORD=<pw> mysql:8.0 --character-set-server=utf8mb4
-#    tạo DB metadata với ĐÚNG collation như Lab 2 thật (xem SHOW CREATE DATABASE đã ghi ở mục 7.1)
-docker exec -i rh_mysql mysql -uroot -p<pw> -e "CREATE DATABASE superset_meta CHARACTER SET utf8mb4"
-docker exec -i rh_mysql mysql -uroot -p<pw> superset_meta < lab2_before_<timestamp>.sql
+docker run -d --name rh_postgres --network rehearsal -e POSTGRES_PASSWORD=<pw> postgres:15
+#    tạo DB + user với ĐÚNG encoding/collation như Lab 2 thật (xem pg_database đã ghi ở mục 7.1)
+docker exec -i rh_postgres createdb -U postgres -O postgres superset_meta
+docker exec -i rh_postgres psql -U postgres -d superset_meta -f - < lab2_before_<timestamp>.sql
 
 # 2) Superset 5.0.0 trỏ vào bản sao (image + driver: docker/Dockerfile của repo)
 docker build -t superset-rehearsal --build-arg SUPERSET_VERSION=5.0.0 docker/
 docker run -d --name rh_superset --network rehearsal -p 18089:8088 \
-  -e META_DB_URI='mysql+mysqldb://root:<pw>@rh_mysql:3306/superset_meta?charset=utf8mb4' \
+  -e META_DB_URI='postgresql+psycopg2://postgres:<pw>@rh_postgres:5432/superset_meta' \
   -e SUPERSET_SECRET_KEY='<SECRET_KEY thật của Lab 2>' \
   -e LAB_NAME=rehearsal \
   -v "$PWD/superset/superset_config.py:/app/pythonpath/superset_config.py:ro" \
@@ -459,10 +461,10 @@ Quy ước: các lệnh viết cho **Docker**; với môi trường khác, chạ
 - Ghi lại thông tin cần cho rollback:
 
 ```bash
-# Collation/charset của database metadata Lab 2 (cần khi tạo lại DB lúc rollback)
-mysql -h <host_meta_lab2> -u <user> -p -e "SHOW CREATE DATABASE <db_meta_lab2>\G; SELECT @@collation_database;"
+# Encoding/collation của database metadata Lab 2 - Postgres (cần khi tạo lại DB lúc rollback)
+psql -h <host_meta_lab2> -U <user> -d <db_meta_lab2> -c "SELECT datname, encoding, datcollate FROM pg_database WHERE datname = current_database();"
 # Số lượng ban đầu (chạy các câu SQL kiểm kê ở mục 4.1 trên Lab 2, lưu kết quả lại)
-mysql -h <host_meta_lab2> -u <user> -p <db_meta_lab2> -e "SELECT 'users', COUNT(*) FROM ab_user
+psql -h <host_meta_lab2> -U <user> -d <db_meta_lab2> -c "SELECT 'users', COUNT(*) FROM ab_user
   UNION ALL SELECT 'connections', COUNT(*) FROM dbs UNION ALL SELECT 'datasets', COUNT(*) FROM tables
   UNION ALL SELECT 'charts', COUNT(*) FROM slices UNION ALL SELECT 'dashboards', COUNT(*) FROM dashboards" \
   | tee lab2_inventory_before.txt
@@ -470,12 +472,14 @@ mysql -h <host_meta_lab2> -u <user> -p <db_meta_lab2> -e "SELECT 'users', COUNT(
 
 ### 7.2. Bước 1: Backup Lab 2 (bắt buộc)
 
+Lab 2 là **Postgres**, dùng `pg_dump` (không phải `mysqldump`):
+
 ```bash
 mkdir -p migration_work && cd migration_work
 
-mysqldump -h <host_meta_lab2> -u <user> -p \
-  --single-transaction --set-gtid-purged=OFF --routines --triggers \
+pg_dump -h <host_meta_lab2> -U <user> --no-owner \
   <db_meta_lab2> > lab2_before_$(date +%F_%H%M).sql
+# (PGPASSWORD=<pass> đặt trước lệnh, hoặc dùng .pgpass, để không gõ mật khẩu tương tác)
 
 sha256sum lab2_before_*.sql | tee lab2_before.sha256       # ghi lại để chứng minh bản backup không đổi
 ls -l lab2_before_*.sql                                     # kích thước phải hợp lý, không phải 0
@@ -484,7 +488,7 @@ ls -l lab2_before_*.sql                                     # kích thước ph�
 docker exec --env-file ../migration.env <C2> python /tmp/migration_tools/verify_merge.py snapshot 2>/dev/null > lab2_before.json
 ```
 
-Kiểm tra bản backup **khôi phục được** (ít nhất trong diễn tập): restore vào MySQL tạm và đếm dòng.
+Kiểm tra bản backup **khôi phục được** (ít nhất trong diễn tập): restore vào Postgres tạm và đếm dòng.
 
 ### 7.3. Bước 2: Export từ Lab 1 (chỉ đọc)
 
@@ -700,17 +704,21 @@ Sau merge, dashboard/chart ở Lab 2 có **ID số mới**. Link dùng **slug** 
 ID cũ (Lab 1) và ID mới (Lab 2) khớp nhau qua `uuid` (cột này giữ nguyên qua export/import). Xuất riêng từng bên rồi join theo `uuid`:
 
 ```bash
-# Lab 1 (nguồn, id cũ)
+# Lab 1 - MySQL (nguồn, id cũ): uuid lưu dạng BINARY(16), phải HEX() để so được với dạng chuỗi của Postgres
 mysql -h <host_meta_lab1> -u <user_ro> -p <db_meta_lab1> -N -e \
-  "SELECT HEX(uuid), id, dashboard_title FROM dashboards ORDER BY uuid" | sort > dash_lab1.tsv
-# Lab 2 (đích, id mới)
-mysql -h <host_meta_lab2> -u <user> -p <db_meta_lab2> -N -e \
-  "SELECT HEX(uuid), id, dashboard_title FROM dashboards ORDER BY uuid" | sort > dash_lab2.tsv
+  "SELECT LOWER(HEX(uuid)), id, dashboard_title FROM dashboards ORDER BY uuid" \
+  | awk -F'\t' 'BEGIN{OFS="\t"}{u=$1; gsub(/(.{8})(.{4})(.{4})(.{4})(.{12})/,"\\1-\\2-\\3-\\4-\\5",u); print u,$2,$3}' \
+  | sort > dash_lab1.tsv
+# Lab 2 - Postgres (đích, id mới): uuid đã là chuỗi chuẩn, không cần chuyển
+psql -h <host_meta_lab2> -U <user> -d <db_meta_lab2> -A -t -F$'\t' -c \
+  "SELECT uuid, id, dashboard_title FROM dashboards ORDER BY uuid" | sort > dash_lab2.tsv
 
 join -t $'\t' -1 1 -2 1 -a 1 -e NOT_MIGRATED -o 1.2,2.2,1.3 dash_lab1.tsv dash_lab2.tsv > id_mapping_dashboard.tsv
 # cột: old_id, new_id, title ; new_id = NOT_MIGRATED nếu dashboard đó không có ở Lab 2 (bị bỏ sót)
 grep NOT_MIGRATED id_mapping_dashboard.tsv
 ```
+
+`awk` ở dòng Lab 1 chỉ để chèn dấu `-` vào đúng vị trí, biến chuỗi hex 32 ký tự (`HEX(uuid)`) thành đúng định dạng uuid chuẩn (`8-4-4-4-12`) như Postgres trả về — nếu không, hai cột `uuid` sẽ không bao giờ khớp khi `join` (đúng bẫy #22 ở MIGRATION_GUIDE).
 
 Làm tương tự cho `slices` (chart) bằng cách đổi tên bảng và cột (`slice_name` thay `dashboard_title`).
 
@@ -747,10 +755,11 @@ Khôi phục metadata Lab 2 về đúng bản backup ở bước 1:
 ```bash
 # 1) Dừng Lab 2 (theo cách vận hành thật)
 # 2) KIỂM TRA ĐÚNG HOST VÀ TÊN DB. Đây là lệnh xoá. Kiểm tra hai lần, tốt nhất nhờ người thứ hai nhìn.
-mysql -h <host_meta_lab2> -u <admin> -p -e "SELECT @@hostname; SHOW DATABASES;"
-# 3) Tạo lại DB đúng như lúc đầu (dùng SHOW CREATE DATABASE đã ghi ở 7.1), rồi restore
-mysql -h <host_meta_lab2> -u <admin> -p -e "DROP DATABASE <db_meta_lab2>; CREATE DATABASE <db_meta_lab2> CHARACTER SET utf8mb4 COLLATE <collation_ghi_o_7.1>;"
-mysql -h <host_meta_lab2> -u <admin> -p <db_meta_lab2> < lab2_before_<timestamp>.sql
+psql -h <host_meta_lab2> -U <admin> -d postgres -c "SELECT inet_server_addr(); \l"
+# 3) Tạo lại DB đúng như lúc đầu (Lab 2 là Postgres), rồi restore
+psql -h <host_meta_lab2> -U <admin> -d postgres -c "DROP DATABASE <db_meta_lab2>;"
+psql -h <host_meta_lab2> -U <admin> -d postgres -c "CREATE DATABASE <db_meta_lab2> OWNER <owner_da_dung_luc_dau>;"
+psql -h <host_meta_lab2> -U <admin> -d <db_meta_lab2> -f lab2_before_<timestamp>.sql
 sha256sum -c lab2_before.sha256                     # bản dump dùng để restore không bị đổi
 # 4) Khởi động Lab 2
 # 5) Kiểm tra: số lượng khớp lab2_inventory_before.txt; đăng nhập được; mọi dashboard cũ hiển thị
@@ -850,7 +859,7 @@ Kỹ thuật
 | Bước | Lệnh chính | Thời gian (diễn tập) | Kết quả | Vấn đề gặp / xử lý |
 |---|---|---|---|---|
 | Kiểm kê | câu SQL mục 4.1 | | | |
-| Backup Lab 2 | `mysqldump` | | kích thước: | |
+| Backup Lab 2 | `pg_dump` | | kích thước: | |
 | Export | `export-datasources`, `export-dashboards` | | số dataset/dashboard: | |
 | Thêm user | `sync_users.py` | | added / skipped / WARN: | |
 | Mật khẩu | file JSON | | N/42: | |

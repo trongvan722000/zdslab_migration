@@ -19,7 +19,7 @@ Ràng buộc thêm: đăng nhập cả hai Lab dùng LDAP + OTP (Google Authenti
 | | ZDS Lab 1 (nguồn) | ZDS Lab 2 (đích) |
 |---|---|---|
 | Superset version | 2.1.1 | 5.0.0 |
-| Metadata lưu ở | MySQL `zdslab1` (`.7`) | MySQL `zdslab2` (`.9`) |
+| Metadata lưu ở | **MySQL** `zdslab1` (`.7`) | **Postgres** (host/port thật chưa xác nhận) |
 | Database connection | 42 | 5 (đang dùng, **phải giữ**) |
 | Schema | 35 | — |
 | Dataset | 503 | — |
@@ -41,14 +41,14 @@ Ràng buộc thêm: đăng nhập cả hai Lab dùng LDAP + OTP (Google Authenti
 
 | | Phương án A — Dump & Restore | Phương án B — Export/Import theo object (chọn) |
 |---|---|---|
-| Cách làm | `mysqldump` toàn bộ metadata Lab 1 → restore đè lên database metadata Lab 2 | Dùng lệnh export của Superset (theo UUID) cho connection/dataset/dashboard; dùng script đọc–ghi trực tiếp cho user, role, lịch sử query |
+| Cách làm | Dump toàn bộ metadata Lab 1 → restore đè lên database metadata Lab 2 | Dùng lệnh export của Superset (theo UUID) cho connection/dataset/dashboard; dùng script đọc–ghi trực tiếp cho user, role, lịch sử query |
 | Giữ được metadata hiện có của Lab 2? | **Không** — bị ghi đè/xoá hoàn toàn | **Có** — chỉ thêm mới, không đụng object cũ |
 | Tương thích khác version (2.1.1 → 5.0.0)? | Rủi ro cao: schema (cấu trúc bảng) giữa hai version khác nhau, chưa kiểm chứng có phục hồi được không | Có cơ chế chính thức của Superset để làm việc này, đã kiểm chứng ở lab |
 | Downtime | Phải dừng Lab 2 để restore | Không cần dừng Lab 2 |
 | Khả năng rollback | Khó — đã ghi đè thì mất bản gốc nếu không backup riêng | Dễ — backup metadata Lab 2 trước khi bắt đầu, rollback bằng cách restore lại đúng bản đó |
 | Công sức | Thấp (1 lệnh) | Cao hơn — nhiều bước, cần script hỗ trợ |
 
-**Chọn Phương án B**, vì yêu cầu bắt buộc là giữ nguyên metadata hiện có của Lab 2 — điều Phương án A không đáp ứng được ngay từ đầu, bất kể rủi ro khác.
+**Chọn Phương án B**, vì yêu cầu bắt buộc là giữ nguyên metadata hiện có của Lab 2 — điều Phương án A không đáp ứng được ngay từ đầu, bất kể rủi ro khác. Phương án A còn thêm một lý do loại trừ: **Lab 1 lưu metadata trên MySQL, Lab 2 trên Postgres** — hai engine khác nhau hoàn toàn, không phải chỉ khác version, nên "dump rồi restore" theo nghĩa đen (`mysqldump` → nạp thẳng vào Postgres) **không chạy được**, phải qua một bước chuyển đổi định dạng riêng — càng làm Phương án A rủi ro và phức tạp hơn.
 
 ### Cơ chế của Phương án B
 
@@ -70,8 +70,8 @@ Ràng buộc thêm: đăng nhập cả hai Lab dùng LDAP + OTP (Google Authenti
                              │ metadata                   │ metadata
                              ▼                            ▼
                     ┌─────────────────┐        ┌─────────────────┐
-                    │ MySQL zdslab1    │        │ MySQL zdslab2    │
-                    │   (.7)           │        │   (.9)           │
+                    │ MySQL zdslab1    │        │ Postgres         │
+                    │   (.7)           │        │   (chưa xác nhận)│
                     └─────────────────┘        └─────────────────┘
 
                      Cả hai Superset cùng đọc DỮ LIỆU THẬT (không migrate):
@@ -116,7 +116,7 @@ Bước 8 ─ Kiểm chứng: đối chiếu số liệu, test kết nối, test
 
 ## 6. Chi tiết cách làm — kế hoạch 1 tuần
 
-Giả định: đã thống nhất cửa sổ bảo trì (nếu công ty yêu cầu), có quyền truy cập cả hai server MySQL metadata, và người thực hiện có tài khoản Admin (qua LDAP + OTP) trên cả hai Lab để tạo user kỹ thuật tạm dùng cho script.
+Giả định: đã thống nhất cửa sổ bảo trì (nếu công ty yêu cầu), có quyền truy cập server metadata của cả hai Lab (MySQL cho Lab 1, Postgres cho Lab 2), và người thực hiện có tài khoản Admin (qua LDAP + OTP) trên cả hai Lab để tạo user kỹ thuật tạm dùng cho script.
 
 | Ngày | Việc chính | Đầu ra |
 |---|---|---|
@@ -131,7 +131,7 @@ Giả định: đã thống nhất cửa sổ bảo trì (nếu công ty yêu c�
 
 ## 7. Đã chạy thử trên lab (máy host thật) & thời gian downtime
 
-Toàn bộ luồng ở mục 5 đã được dựng và chạy thử trên máy host bằng Docker Compose — 5 container: `superset_lab1` (2.1.1), `superset_lab2` (5.0.0), `mysql_lab1`, `mysql_lab2`, `postgres_lab1` — với dữ liệu mô phỏng (5 connection, 10 dataset, 3 dashboard, 9 user ở Lab 1; 2 connection, 1 dashboard, 4 user có sẵn ở Lab 2). Kết quả: chạy hết Bước 0 → 8, kiểm chứng cuối cùng báo `MERGE OK`, cả 7 connection sau merge kết nối được, 13 chart chạy ra dữ liệu, user cũ của Lab 1 lẫn user có sẵn của Lab 2 đều đăng nhập được; chạy lại lần 2 không tạo dữ liệu trùng.
+Toàn bộ luồng ở mục 5 đã được dựng và chạy thử trên máy host bằng Docker Compose — 5 container: `superset_lab1` (2.1.1), `superset_lab2` (5.0.0), `mysql_lab1` (metadata Lab 1), `postgres_lab2` (metadata Lab 2), `postgres_lab1` (data thật) — với dữ liệu mô phỏng (5 connection, 10 dataset, 3 dashboard, 9 user ở Lab 1; 2 connection, 1 dashboard, 4 user có sẵn ở Lab 2). Kết quả: chạy hết Bước 0 → 8, kiểm chứng cuối cùng báo `MERGE OK`, cả 7 connection sau merge kết nối được, 13 chart chạy ra dữ liệu, user cũ của Lab 1 lẫn user có sẵn của Lab 2 đều đăng nhập được; chạy lại lần 2 không tạo dữ liệu trùng.
 
 ### Downtime đo được
 

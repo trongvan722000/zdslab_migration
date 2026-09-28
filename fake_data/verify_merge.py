@@ -21,15 +21,22 @@ QUERIES = {
                 "FROM tables t JOIN dbs d ON d.id = t.database_id",
     "charts": "SELECT slice_name FROM slices",
     "dashboards": "SELECT dashboard_title FROM dashboards",
-    "dashboard status": "SELECT CONCAT(dashboard_title, ' :: published=', COALESCE(published, 0)) FROM dashboards",
+    # CASE..THEN 1 ELSE 0 (not COALESCE(published, 0) / bare boolean) so MySQL and Postgres render the same text:
+    # MySQL has no real boolean (a raw bool concatenates as 1/0 already) but Postgres concatenates true/false.
+    "dashboard status": "SELECT CONCAT(dashboard_title, ' :: published=', "
+                         "CASE WHEN COALESCE(published, false) THEN 1 ELSE 0 END) FROM dashboards",
     "query history": "SELECT client_id FROM query",
-    "saved queries": "SELECT CONCAT(label, ' :: ', COALESCE(`sql`, '')) FROM saved_query",
+    # {Q} = identifier quote char: "sql" is a reserved word in MySQL (needs `sql`) but not in Postgres,
+    # where `sql` (backticks) is a syntax error instead - so the quote style must vary by dialect.
+    "saved queries": "SELECT CONCAT(label, ' :: ', COALESCE({Q}sql{Q}, '')) FROM saved_query",
 }
 
 
 def names(uri):
-    with create_engine(uri).connect() as c:
-        return {k: sorted(r[0] for r in c.execute(text(q))) for k, q in QUERIES.items()}
+    engine = create_engine(uri)
+    quote = "`" if engine.dialect.name == "mysql" else '"'
+    with engine.connect() as c:
+        return {k: sorted(r[0] for r in c.execute(text(q.format(Q=quote)))) for k, q in QUERIES.items()}
 
 
 target = names(os.environ["META_DB_URI"])
