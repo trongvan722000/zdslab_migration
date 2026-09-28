@@ -192,7 +192,7 @@ docker exec superset_lab1 rm -f /tmp/passwords.json
 docker exec superset_lab2 rm -f /tmp/passwords.json
 ```
 
-Mỗi lệnh import phải in `... import (direct): OK, N connection(s) in bundle`. Script chạy Superset import **ngay trong container** (không đăng nhập, không HTTP); tham số cuối (`admin`) là user đã tồn tại làm owner. Bản gọi API cũ vẫn còn: `fake_data/import_bundle.py`.
+Mỗi lệnh import phải in `... import (direct): OK, N connection(s) in bundle`. Script chạy Superset import **ngay trong container** (không đăng nhập, không HTTP); tham số cuối (`admin`) là user đã tồn tại làm owner.
 - **Chọn mật khẩu cho từng connection**, theo thứ tự: file `DB_PASSWORDS_FILE` → biến `DB_PASSWORDS_JSON` (cùng dạng, gõ trực tiếp) → biến `DB_PASSWORD` (dùng cho mọi connection không có trong hai nguồn trên, mặc định `reader_pwd`). Connection nào không có trong danh sách sẽ in dòng `note: no specific password...`.
 - **Mật khẩu sai thì import bị từ chối**, không lưu âm thầm: Superset 5.0.0 kết nối thử tới database khi nạp dataset, nên sẽ báo `password authentication failed` (HTTP 500). Đã thử thật.
 - Nếu không muốn (hoặc không được phép) lấy mật khẩu từ Lab 1, tự lập file JSON từ kho mật khẩu của công ty, cùng dạng trên.
@@ -255,9 +255,9 @@ Chi tiết và cách xử lý: [docs/PRODUCTION_RUNBOOK.md](docs/PRODUCTION_RUNB
 
 1. **Quyền của role vào dataset/database KHÔNG đi theo import.** User có role tự tạo/Gamma sẽ thấy 0 dataset ở Lab 2 (đã thử: `zds_bob` 2 dataset → 0). `fab export-roles/import-roles` cũng không sửa được vì tên quyền chứa ID cũ.
 2. **Owner bị đổi thành người import** → user Alpha không sửa được dashboard của chính mình.
-3. **`sync_users.py` chỉ ghi `ab_user` và `ab_user_role`**; không tạo role, không chép quyền gắn vào role. User đã tồn tại ở Lab 2 bị bỏ qua hoàn toàn (kể cả role): `preflight_inventory.py compare` liệt kê user khác role giữa hai Lab.
+3. **`sync_users.py` chỉ ghi `ab_user` và `ab_user_role`**; không tạo role, không chép quyền gắn vào role. User đã tồn tại ở Lab 2 bị bỏ qua hoàn toàn (kể cả role): so sánh role từng user giữa hai Lab bằng SQL trực tiếp (mục 7.4 `PRODUCTION_RUNBOOK.md`).
 4. **Không cần đăng nhập để import.** `import_bundle_direct.py` chạy ngay trong container Lab 2 (hợp với đăng nhập LDAP + OTP). Chỉ `smoke_test_api.py` cần đăng nhập.
-5. **Không được chuyển:** Alerts & Reports, RLS, CSS template, annotation layer, tab SQL Lab đang mở, log, link rút gọn, yêu thích. Kiểm kê bằng `preflight_inventory.py` (chỉ đọc) trước khi làm.
+5. **Không được chuyển:** Alerts & Reports, RLS, CSS template, annotation layer, tab SQL Lab đang mở, log, link rút gọn, yêu thích. Kiểm kê bằng SQL trực tiếp trên metadata (chỉ đọc) trước khi làm — xem ví dụ ở mục 8 phía trên và `PRODUCTION_RUNBOOK.md` mục 4.
 6. **Kiểm tra `AUTH_TYPE`** của cả hai Lab và `AUTH_ROLES_SYNC_AT_LOGIN` ở Lab 2 (runbook mục 4.6).
 
 ## 5. Rollback
@@ -313,11 +313,8 @@ fake_data/sync_users.py             thêm user Lab 1 vào Lab 2 (khớp theo use
 fake_data/sync_dashboard_published.py  chép cờ published của dashboard (2.1.1 không xuất trường này)
 fake_data/seed_query_history.py     tạo lịch sử query + saved query thật bằng cách chạy qua SQL Lab API
 fake_data/sync_query_history.py     copy lịch sử query + saved query Lab 1 -> Lab 2
-fake_data/import_bundle.py          import ZIP qua REST API kèm mật khẩu connection (từng connection một)
 fake_data/export_db_passwords.py    xuất mật khẩu mọi connection ra JSON (Superset tự giải mã)
 fake_data/verify_merge.py           snapshot + so sánh tên object Lab 1 vs Lab 2
-fake_data/preflight_inventory.py    kiểm kê metadata chỉ đọc (dùng được ở production)
-fake_data/id_mapping.py             CSV ánh xạ ID cũ -> mới của dashboard/chart
 fake_data/check_connections.py      test kết nối từng connection
 fake_data/smoke_test_api.py         login qua API + chạy query mọi chart
 scripts/merge_lab1_to_lab2.sh       toàn bộ Bước 1 -> 7 tự động

@@ -77,24 +77,23 @@ Các script nằm ở [`fake_data/`](../fake_data/). Thư mục này có **cả 
 
 | Script | Dùng ở production? | Chạy ở | Cần |
 |---|---|---|---|
-| `preflight_inventory.py` | **Có** (chỉ đọc) | Lab 1 và/hoặc Lab 2 | `META_DB_URI` (+ `SRC_META_URI` cho chế độ `compare`) |
 | `export_db_passwords.py` | Có, **nhạy cảm** (xuất mật khẩu chữ thường) | **Lab 1** (cần `SECRET_KEY` của Lab 1) | Môi trường app Lab 1 |
-| **`import_bundle_direct.py`** (**khuyến nghị**) | Có | Lab 2 | Chỉ môi trường app Lab 2 và tên một user **đã tồn tại** làm owner. **Không cần đăng nhập, OTP, token** |
-| `import_bundle.py` (dự phòng) | Có | Lab 2 | Import qua **API web**: cần `SUPERSET_URL`, tài khoản admin, `AUTH_PROVIDER` (và OTP nếu LDAP + MFA) |
+| **`import_bundle_direct.py`** (**khuyến nghị, cách duy nhất trong repo**) | Có | Lab 2 | Chỉ môi trường app Lab 2 và tên một user **đã tồn tại** làm owner. **Không cần đăng nhập, OTP, token** |
 | `sync_users.py` | Có | Lab 2 | `META_DB_URI`, `SRC_META_URI` |
 | `sync_dashboard_published.py` | Có | Lab 2 | như trên |
 | `sync_query_history.py` | Có | Lab 2 | như trên |
 | `verify_merge.py` | Có (chỉ đọc) | Lab 2 | như trên |
 | `check_connections.py` | Có (mở kết nối tới data DB) | Lab 2 | Môi trường app Lab 2 |
 | `smoke_test_api.py` | Có, **có giới hạn** (mục 8). **Cần đăng nhập** (gọi API) | Lab 2 | `MAX_CHARTS`, tài khoản, `AUTH_PROVIDER` |
-| `id_mapping.py` | Có (chỉ đọc) | Lab 2 | như `sync_*` |
 | `sync_users.py` phụ thuộc `seed_fake_metadata.py` | Chỉ **dùng như thư viện** (import hàm `insert`, `find_id`); **không chạy `seed_fake_metadata.py`** | | |
 | `seed_fake_metadata.py`, `seed_lab2_existing.py`, `seed_query_history.py` | **KHÔNG.** Tạo dữ liệu giả, chỉ dành cho lab | | |
 | `scripts/merge_lab1_to_lab2.sh`, `verify.sh`, `reset_lab2.sh`, `docker-compose.yml` | **KHÔNG.** Viết cho lab Docker (tên container cố định, `reset_lab2.sh` **xoá metadata**) | | |
 
+> Repo từng có thêm `preflight_inventory.py` (kiểm kê chỉ đọc + so sánh Lab 1/Lab 2) và `id_mapping.py` (xuất CSV ánh xạ ID cũ→mới) và `import_bundle.py` (import qua REST API). Cả ba đã bị xoá vì chưa từng chạy trong lúc luyện tập trên lab. Kiểm kê/so sánh ở mục 4 dưới đây làm bằng **SQL trực tiếp** trên metadata; nếu quy mô production (503 dataset, 42 connection) khiến việc này tốn công, cân nhắc viết lại một bản kiểm kê tương tự trước khi migrate thật.
+
 ### 3.1. Biến môi trường
 
-Các script `sync_*`, `verify_merge`, `preflight_inventory`, `id_mapping` cần biết **chuỗi kết nối metadata DB**. Trong lab, các container có sẵn biến `META_DB_URI`; ở production container Superset thường **không có** biến này (URI nằm trong `superset_config.py`), nên phải tự khai báo.
+Các script `sync_*`, `verify_merge` cần biết **chuỗi kết nối metadata DB**. Trong lab, các container có sẵn biến `META_DB_URI`; ở production container Superset thường **không có** biến này (URI nằm trong `superset_config.py`), nên phải tự khai báo.
 
 Tạo file `migration.env` (quyền `600`, đặt ngoài git, xoá sau khi xong):
 
@@ -118,11 +117,10 @@ AUTH_PROVIDER=db
 ```bash
 docker exec <C2> mkdir -p /tmp/migration_tools
 for f in seed_fake_metadata sync_users sync_dashboard_published sync_query_history \
-         import_bundle_direct import_bundle verify_merge check_connections preflight_inventory id_mapping smoke_test_api; do
+         import_bundle_direct verify_merge check_connections smoke_test_api; do
   docker cp fake_data/$f.py <C2>:/tmp/migration_tools/
 done
 docker cp fake_data/export_db_passwords.py <C1>:/tmp/
-docker cp fake_data/preflight_inventory.py <C1>:/tmp/
 ```
 
 (`<C1>`, `<C2>` = container/host chạy Superset Lab 1 / Lab 2.) Các script cần `SQLAlchemy`, `requests`, `PyYAML`, `mysqlclient`, `werkzeug`: **đều có sẵn** trong image Superset. Nếu chạy ngoài container, phải cài đủ.
@@ -134,17 +132,16 @@ Phần lớn các bước **không cần đăng nhập** vì chạy thẳng tron
 | Bước | Cần đăng nhập web/API? |
 |---|---|
 | Export (`superset export-*`), `export_db_passwords.py` | Không (chạy trong ứng dụng) |
-| `sync_users`, `sync_dashboard_published`, `sync_query_history`, `verify_merge`, `id_mapping`, `preflight_inventory` | Không (đọc/ghi thẳng metadata DB) |
+| `sync_users`, `sync_dashboard_published`, `sync_query_history`, `verify_merge` | Không (đọc/ghi thẳng metadata DB) |
 | **Import** bằng `import_bundle_direct.py` | **Không.** Gọi lệnh import của Superset ngay trong tiến trình, không qua web |
 | `check_connections.py` | Không |
-| Import bằng `import_bundle.py` (API) | Có |
 | `smoke_test_api.py` | Có |
 
 **Vì sao đây là điểm quan trọng khi mật khẩu đăng nhập là OTP:** mã OTP đổi mỗi 30 giây và thường dùng một lần, nên script API không tự đăng nhập lặp lại được. Cách import trực tiếp tránh hoàn toàn vấn đề này, và **cũng không dính timeout của proxy/gunicorn** khi ZIP lớn (không có request HTTP nào).
 
 `import_bundle_direct.py` chỉ cần **tên một user đã tồn tại trong Lab 2** làm *owner* của các object nạp vào (tham số thứ ba; mặc định `admin`). Không cần biết mật khẩu của user đó. Nếu user không tồn tại, script dừng ngay với thông báo rõ. Ở production, dùng chính username LDAP của bạn (user phải có sẵn trong Lab 2, ví dụ đã từng đăng nhập hoặc vừa được `sync_users.py` thêm) hoặc một tài khoản admin sẵn có.
 
-**Nếu vẫn phải gọi API** (`smoke_test_api.py` hoặc `import_bundle.py`): API đăng nhập của Superset (`/api/v1/security/login`) nhận `provider: ldap` (mật khẩu = OTP) hoặc `provider: db` (mật khẩu lưu trong database Superset, **không qua LDAP/OTP**, đặt `AUTH_PROVIDER=db`). Access token sống **15 phút**, refresh token sống **30 ngày** (`/api/v1/security/refresh`). Tài khoản `db` kiểu dùng chung bỏ qua MFA, cần bộ phận bảo mật đồng ý và ghi nhận. Kết quả này rút ra từ mã nguồn Flask-AppBuilder 4.3.0 và 4.5.5, *chưa thử với LDAP + OTP thật*.
+**Nếu vẫn phải gọi API** (`smoke_test_api.py`): API đăng nhập của Superset (`/api/v1/security/login`) nhận `provider: ldap` (mật khẩu = OTP) hoặc `provider: db` (mật khẩu lưu trong database Superset, **không qua LDAP/OTP**, đặt `AUTH_PROVIDER=db`). Access token sống **15 phút**, refresh token sống **30 ngày** (`/api/v1/security/refresh`). Tài khoản `db` kiểu dùng chung bỏ qua MFA, cần bộ phận bảo mật đồng ý và ghi nhận. Kết quả này rút ra từ mã nguồn Flask-AppBuilder 4.3.0 và 4.5.5, *chưa thử với LDAP + OTP thật*.
 
 ---
 
@@ -154,18 +151,64 @@ Mục tiêu: biết trước hệ thống thật có gì khác lab, để không
 
 ### 4.1. Chạy kiểm kê
 
-```bash
-# Lab 1
-docker exec --env-file migration.env <C1> python /tmp/preflight_inventory.py
-# Lab 2
-docker exec --env-file migration.env <C2> python /tmp/migration_tools/preflight_inventory.py
-# So sánh nguồn và đích (trùng tên connection, trùng email user, role thiếu, dashboard sẽ bị ghi đè)
-docker exec --env-file migration.env <C2> python /tmp/migration_tools/preflight_inventory.py compare
+Chạy trên **cả hai** Lab (chỉ đọc, tài khoản `SELECT` là đủ). Câu lệnh viết cho **MySQL**; nếu metadata dùng Postgres phải sửa (`information_schema`, không cần `\`offset\`` backtick).
+
+```sql
+-- Version schema (phải khớp/mới hơn giữa hai Lab, xem mục 4.2 dòng đầu)
+SELECT version_num FROM alembic_version;
+
+-- User: tổng, không có mật khẩu (nghi LDAP/SSO), chưa đăng nhập, inactive
+SELECT COUNT(*) total,
+       SUM(password IS NULL OR password = '') no_password,
+       SUM(last_login IS NULL) never_login,
+       SUM(active = 0) inactive
+FROM ab_user;
+
+-- Role không phải mặc định (role tự tạo)
+SELECT name FROM ab_role WHERE name NOT IN ('Admin','Alpha','Gamma','Public','sql_lab','granter');
+
+-- Danh sách connection: host, có mật khẩu lưu không
+SELECT id, database_name,
+       SUBSTRING_INDEX(SUBSTRING_INDEX(sqlalchemy_uri,'@',-1),'/',1) AS host,
+       (password IS NOT NULL AND password <> '') AS has_password
+FROM dbs;
+
+-- Các thứ KHÔNG được export/import (mục 4.2 giải thích ý nghĩa từng dòng)
+SELECT 'report_schedule' t, COUNT(*) n FROM report_schedule
+UNION ALL SELECT 'row_level_security_filters', COUNT(*) FROM row_level_security_filters
+UNION ALL SELECT 'dashboard_roles', COUNT(*) FROM dashboard_roles
+UNION ALL SELECT 'embedded_dashboards', COUNT(*) FROM embedded_dashboards
+UNION ALL SELECT 'url', COUNT(*) FROM url
+UNION ALL SELECT 'key_value', COUNT(*) FROM key_value
+UNION ALL SELECT 'favstar', COUNT(*) FROM favstar
+UNION ALL SELECT 'tag', COUNT(*) FROM tag
+UNION ALL SELECT 'annotation_layer', COUNT(*) FROM annotation_layer
+UNION ALL SELECT 'css_templates', COUNT(*) FROM css_templates
+UNION ALL SELECT 'user_attribute', COUNT(*) FROM user_attribute
+UNION ALL SELECT 'ssh_tunnels', COUNT(*) FROM ssh_tunnels;
+
+-- Dấu hiệu lỗi dữ liệu: dataset.offset NULL (bẫy #8), dataset/chart mồ côi
+SELECT COUNT(*) offset_null FROM tables WHERE `offset` IS NULL;
+SELECT COUNT(*) dataset_orphan FROM tables t LEFT JOIN dbs d ON d.id = t.database_id WHERE d.id IS NULL;
+SELECT COUNT(*) chart_orphan FROM slices s LEFT JOIN tables t ON t.id = s.datasource_id
+  WHERE s.datasource_type = 'table' AND t.id IS NULL;
+
+-- Collation của metadata DB (so với mục 7.1; nhiều collation khác nhau -> bẫy #2 MIGRATION_GUIDE)
+SELECT table_collation, COUNT(*) FROM information_schema.tables
+  WHERE table_schema = DATABASE() GROUP BY table_collation;
 ```
 
-Script chỉ đọc. Kết quả gồm: version schema; số user (active, không có mật khẩu, chưa đăng nhập); danh sách connection (kiểu, host, có mật khẩu không); role tự tạo; **các thứ sẽ không được chuyển** mà hệ thống đang dùng; dấu hiệu lỗi dữ liệu; collation.
+**So sánh nguồn/đích** (trùng tên connection, trùng email user, user có ở cả hai nhưng khác role, dashboard sẽ bị ghi đè): chạy cùng câu SQL "danh sách connection" và câu dưới đây trên **cả hai** Lab rồi diff kết quả bằng tay (`diff`/`comm`, hoặc dán vào 2 cột spreadsheet):
 
-> Chế độ này đã chạy thử trên metadata của lab (2.1.1 và 5.0.0), không chạy trên hệ thống thật. Câu lệnh SQL viết cho **MySQL**; nếu metadata dùng Postgres phải sửa (`HEX(uuid)`, `CONCAT`, `information_schema`).
+```sql
+SELECT username, email, GROUP_CONCAT(r.name ORDER BY r.name) roles
+FROM ab_user u LEFT JOIN ab_user_role ur ON ur.user_id = u.id LEFT JOIN ab_role r ON r.id = ur.role_id
+GROUP BY u.id ORDER BY username;
+
+SELECT uuid, dashboard_title FROM dashboards ORDER BY dashboard_title;   -- uuid trùng giữa 2 Lab -> import sẽ ghi đè
+```
+
+> Các câu trên đã chạy thử trên metadata của lab (2.1.1 và 5.0.0), chưa chạy trên hệ thống thật với quy mô 503 dataset / 42 connection — nếu việc diff thủ công quá cồng kềnh ở quy mô đó, cân nhắc viết một script gói lại các câu này (repo từng có `preflight_inventory.py` làm việc này nhưng đã bị xoá vì không được dùng trong lúc luyện tập ở lab).
 
 ### 4.2. Đọc kết quả và quyết định
 
@@ -251,7 +294,7 @@ Dùng khi chưa tiện chạy script. Thêm đường dẫn sau vào địa ch�
 | CSS template, annotation layer | `/csstemplatemodelview/list/`, `/annotationlayer/list/` | Settings → Manage | Không (đếm; tạo lại tay nếu có) |
 | Dashboard nhúng | mở dashboard → menu `...` → Embed dashboard | (từng dashboard) | Không |
 
-Lưu ý: menu ẩn **không** đảm bảo database không còn dữ liệu (ví dụ từng dùng báo cáo định kỳ rồi tắt tính năng). Cách đếm chắc chắn là `preflight_inventory.py` (mục 4.1).
+Lưu ý: menu ẩn **không** đảm bảo database không còn dữ liệu (ví dụ từng dùng báo cáo định kỳ rồi tắt tính năng). Cách đếm chắc chắn là chạy câu SQL đếm bảng `report_schedule` ở mục 4.1.
 
 ### 4.6. Kiểu đăng nhập và cấu hình LDAP
 
@@ -272,7 +315,7 @@ print("AUTH_ROLES_SYNC_AT_LOGIN =", app.config.get("AUTH_ROLES_SYNC_AT_LOGIN"))
 print("AUTH_USER_REGISTRATION   =", app.config.get("AUTH_USER_REGISTRATION"), "role:", app.config.get("AUTH_USER_REGISTRATION_ROLE"))
 EOF
 ```
-4. Dữ liệu: `preflight_inventory.py`, dòng "users KHÔNG có mật khẩu" (nhiều = nghi LDAP/SSO).
+4. Dữ liệu: câu SQL đếm `no_password` ở mục 4.1 (nhiều = nghi LDAP/SSO).
 
 **Phân tích đoạn cấu hình đã xem** (kiểm tra trong mã nguồn Flask-AppBuilder 4.3.0 và 4.5.5):
 
@@ -288,7 +331,7 @@ EOF
 **Ảnh hưởng tới migrate:**
 - Với LDAP, user được tìm theo `username`; nếu đã có sẵn ở Lab 2 (do ta chép sang) thì dùng luôn dòng đó, không tạo trùng. Nên `sync_users.py` vẫn phù hợp.
 - User chỉ có role mặc định có thể tự đăng ký lại ở Lab 2, nhưng **user có role khác mặc định vẫn phải chuyển**, nếu không họ chỉ nhận Gamma khi đăng nhập lần đầu và mất quyền; lịch sử query cũng cần user tồn tại để gán.
-- `username` phải giống hệt giữa hai Lab (cùng trường LDAP như `uid`), nếu không sẽ bị nhân đôi. So sánh 3-5 user bằng `preflight_inventory.py compare`.
+- `username` phải giống hệt giữa hai Lab (cùng trường LDAP như `uid`), nếu không sẽ bị nhân đôi. So sánh 3-5 user bằng câu SQL "so sánh nguồn/đích" ở mục 4.1.
 - User đã tự đăng ký ở Lab 2 **trước** khi migrate bị `sync_users.py` bỏ qua (giữ role mặc định); `compare` liệt kê những người khác role (mục 4.2).
 - Kiểu đăng nhập của Lab 1 và Lab 2 khác nhau (ví dụ DB so với LDAP) là tình huống **chưa thử**.
 
@@ -336,8 +379,8 @@ Lỗi mở cổng (`FAIL`) hoặc `Access denied` → nhờ người quản lý 
 | Cần | Dùng để | Ghi chú |
 |---|---|---|
 | Một **user đã tồn tại** trong Lab 2 làm owner của object nạp vào | `import_bundle_direct.py` (tham số thứ ba) | **Không cần mật khẩu/OTP.** Chỉ cần user tồn tại trong `ab_user` của Lab 2 |
-| (Chỉ khi dùng API) tài khoản **Admin** đăng nhập được | `import_bundle.py`, `smoke_test_api.py` | LDAP + OTP: xem mục 3.3. Hoặc admin tài khoản `db` dùng chung (cần bảo mật duyệt) |
-| Tài khoản DB **chỉ đọc** vào metadata Lab 1 (`SELECT`) | `sync_*`, `verify_merge`, `id_mapping` | Nếu Lab 2 **không nối được** metadata Lab 1: `mysqldump` các bảng cần (`ab_user`, `ab_role`, `ab_user_role`, `dbs`, `dashboards`, `query`, `saved_query`, `alembic_version`) từ Lab 1 sang một MySQL tạm gần Lab 2 rồi trỏ `SRC_META_URI` vào đó *(chưa thử)* |
+| (Chỉ khi dùng API) tài khoản **Admin** đăng nhập được | `smoke_test_api.py` | LDAP + OTP: xem mục 3.3. Hoặc admin tài khoản `db` dùng chung (cần bảo mật duyệt) |
+| Tài khoản DB **chỉ đọc** vào metadata Lab 1 (`SELECT`) | `sync_*`, `verify_merge`, câu SQL kiểm kê mục 4.1 | Nếu Lab 2 **không nối được** metadata Lab 1: `mysqldump` các bảng cần (`ab_user`, `ab_role`, `ab_user_role`, `dbs`, `dashboards`, `query`, `saved_query`, `alembic_version`) từ Lab 1 sang một MySQL tạm gần Lab 2 rồi trỏ `SRC_META_URI` vào đó *(chưa thử)* |
 | Tài khoản DB **ghi** vào metadata Lab 2 | `sync_*` | Có thể dùng chính tài khoản Superset Lab 2 |
 | Quyền `mysqldump` metadata Lab 2 | Backup | |
 | Quyền chạy lệnh trong container/host Lab 1 và Lab 2 | Export, `db upgrade`, restart | |
@@ -418,8 +461,11 @@ Quy ước: các lệnh viết cho **Docker**; với môi trường khác, chạ
 ```bash
 # Collation/charset của database metadata Lab 2 (cần khi tạo lại DB lúc rollback)
 mysql -h <host_meta_lab2> -u <user> -p -e "SHOW CREATE DATABASE <db_meta_lab2>\G; SELECT @@collation_database;"
-# Số lượng ban đầu
-docker exec --env-file migration.env <C2> python /tmp/migration_tools/preflight_inventory.py > lab2_inventory_before.txt
+# Số lượng ban đầu (chạy các câu SQL kiểm kê ở mục 4.1 trên Lab 2, lưu kết quả lại)
+mysql -h <host_meta_lab2> -u <user> -p <db_meta_lab2> -e "SELECT 'users', COUNT(*) FROM ab_user
+  UNION ALL SELECT 'connections', COUNT(*) FROM dbs UNION ALL SELECT 'datasets', COUNT(*) FROM tables
+  UNION ALL SELECT 'charts', COUNT(*) FROM slices UNION ALL SELECT 'dashboards', COUNT(*) FROM dashboards" \
+  | tee lab2_inventory_before.txt
 ```
 
 ### 7.2. Bước 1: Backup Lab 2 (bắt buộc)
@@ -500,7 +546,7 @@ Nghĩa là: user vào Lab 2 **đúng tên role**, nhưng role đó **chỉ có t
 
 Không được chép ở mức user: `last_login` (để `NULL`), `login_count` (đặt 0), `user_attribute` (dashboard chào mừng mặc định), `favstar` (yêu thích). Không ảnh hưởng việc đăng nhập.
 
-**User đã tồn tại ở Lab 2 bị bỏ qua hoàn toàn**, kể cả role. Nếu user đó ở Lab 1 có role khác thì Lab 2 **không được cộng thêm**. Ở production điều này hay xảy ra: user LDAP tự đăng ký ở Lab 2 với role mặc định trước khi bạn migrate. Chạy `preflight_inventory.py compare`: dòng "User có ở CẢ HAI nhưng KHÁC role" cho biết chính xác ai cần sửa tay.
+**User đã tồn tại ở Lab 2 bị bỏ qua hoàn toàn**, kể cả role. Nếu user đó ở Lab 1 có role khác thì Lab 2 **không được cộng thêm**. Ở production điều này hay xảy ra: user LDAP tự đăng ký ở Lab 2 với role mặc định trước khi bạn migrate. Chạy câu SQL "so sánh nguồn/đích" ở mục 4.1 trên cả hai Lab rồi diff: user có ở cả hai nhưng khác `roles` cho biết chính xác ai cần sửa tay.
 
 Kiểm tra sau khi sync (so role từng user giữa hai Lab: chạy trên mỗi Lab rồi so kết quả):
 
@@ -539,8 +585,6 @@ docker exec -e DB_PASSWORDS_FILE=/tmp/passwords.json <C2> \
 `<owner_username>`: user **đã có** trong Lab 2 (mục 3.3). Mỗi lệnh phải in `... import (direct): OK, N connection(s) in bundle` và **không** có dòng `note: no specific password for ...` (nếu có = connection đó đang dùng mật khẩu mặc định).
 
 Kết quả đã thử trên lab (import trực tiếp): mật khẩu **sai** → bị từ chối kèm nguyên nhân gốc (`password authentication failed for user ...`) và **không ghi gì** vào Lab 2; mật khẩu đúng → nạp thành công; chạy lại lần 2 → không tạo trùng; 7/7 connection dùng được.
-
-**Dự phòng: import bằng API web** (cần đăng nhập, xem mục 3.3): `import_bundle.py dataset|dashboard <zip> <admin_user> '<admin_pass>'` với `--env-file ../migration.env` (`AUTH_PROVIDER`, `SUPERSET_URL`). Mỗi lệnh in `HTTP 200 {"message":"OK"}`.
 
 **Lưu ý: import lại KHÔNG sửa mật khẩu của connection đã tồn tại.** Nếu connection đã nạp với mật khẩu sai, chạy lại import với mật khẩu đúng sẽ **không** đổi mật khẩu đã lưu (đã thử: chạy lại với mật khẩu sai cũng không làm hỏng mật khẩu đúng). Muốn sửa: nhập lại mật khẩu trong giao diện (Settings → Database Connections → Edit), hoặc xoá connection đó và nạp lại.
 
@@ -653,11 +697,22 @@ Kiểm tra này **chỉ làm bằng tay** được; chưa có công cụ tự đ
 
 Sau merge, dashboard/chart ở Lab 2 có **ID số mới**. Link dùng **slug** vẫn chạy; link dùng ID cũ (`/superset/dashboard/<id>/`) thì hỏng. Tạo bảng ánh xạ để làm redirect hoặc thông báo:
 
+ID cũ (Lab 1) và ID mới (Lab 2) khớp nhau qua `uuid` (cột này giữ nguyên qua export/import). Xuất riêng từng bên rồi join theo `uuid`:
+
 ```bash
-docker exec --env-file ../migration.env <C2> python /tmp/migration_tools/id_mapping.py > id_mapping.csv
-# cột: type, old_id, new_id, slug, title ; new_id = NOT_MIGRATED nếu không được chuyển
-grep NOT_MIGRATED id_mapping.csv                 # dashboard/chart bị bỏ sót
+# Lab 1 (nguồn, id cũ)
+mysql -h <host_meta_lab1> -u <user_ro> -p <db_meta_lab1> -N -e \
+  "SELECT HEX(uuid), id, dashboard_title FROM dashboards ORDER BY uuid" | sort > dash_lab1.tsv
+# Lab 2 (đích, id mới)
+mysql -h <host_meta_lab2> -u <user> -p <db_meta_lab2> -N -e \
+  "SELECT HEX(uuid), id, dashboard_title FROM dashboards ORDER BY uuid" | sort > dash_lab2.tsv
+
+join -t $'\t' -1 1 -2 1 -a 1 -e NOT_MIGRATED -o 1.2,2.2,1.3 dash_lab1.tsv dash_lab2.tsv > id_mapping_dashboard.tsv
+# cột: old_id, new_id, title ; new_id = NOT_MIGRATED nếu dashboard đó không có ở Lab 2 (bị bỏ sót)
+grep NOT_MIGRATED id_mapping_dashboard.tsv
 ```
+
+Làm tương tự cho `slices` (chart) bằng cách đổi tên bảng và cột (`slice_name` thay `dashboard_title`).
 
 ### 9.2. Các bước đề xuất
 
@@ -794,7 +849,7 @@ Kỹ thuật
 
 | Bước | Lệnh chính | Thời gian (diễn tập) | Kết quả | Vấn đề gặp / xử lý |
 |---|---|---|---|---|
-| Kiểm kê | `preflight_inventory.py` | | | |
+| Kiểm kê | câu SQL mục 4.1 | | | |
 | Backup Lab 2 | `mysqldump` | | kích thước: | |
 | Export | `export-datasources`, `export-dashboards` | | số dataset/dashboard: | |
 | Thêm user | `sync_users.py` | | added / skipped / WARN: | |

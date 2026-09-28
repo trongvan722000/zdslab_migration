@@ -33,7 +33,7 @@ Ràng buộc thêm: đăng nhập cả hai Lab dùng LDAP + OTP (Google Authenti
 | Role tuỳ chỉnh (List Roles) | Có | chưa kiểm tra |
 | Action Log | Có dữ liệu | chưa kiểm tra |
 
-> ❗ Số liệu Lab 1 lấy từ kiểm kê thực tế trên production. Số liệu Lab 2 (user/connection hiện có, role, RLS, Alerts & Reports...) cần chạy `fake_data/preflight_inventory.py` trên Lab 2 thật để có số chính xác trước khi lên lịch — mục 6, Ngày 1.
+> ❗ Số liệu Lab 1 lấy từ kiểm kê thực tế trên production. Số liệu Lab 2 (user/connection hiện có, role, RLS, Alerts & Reports...) cần chạy các câu SQL kiểm kê trên Lab 2 thật (xem `PRODUCTION_RUNBOOK.md` mục 4.1) để có số chính xác trước khi lên lịch — mục 6, Ngày 1.
 
 ## 3. Giải pháp
 
@@ -120,7 +120,7 @@ Giả định: đã thống nhất cửa sổ bảo trì (nếu công ty yêu c�
 
 | Ngày | Việc chính | Đầu ra |
 |---|---|---|
-| **Thứ 2** | **Kiểm kê & chuẩn bị.** Chạy `preflight_inventory.py` (chỉ đọc) trên cả hai Lab: đếm connection/user/dataset/dashboard hiện có, phát hiện trùng tên connection, trùng email/username, user tồn tại ở cả hai Lab nhưng khác role. Xác nhận `AUTH_TYPE`, `AUTH_ROLES_SYNC_AT_LOGIN` của Lab 2. Xác nhận Lab 1/Lab 2 dùng **cùng `SECRET_KEY`** hay khác (ảnh hưởng cách giải mã mật khẩu connection). Tạo user kỹ thuật tạm để script chạy được không cần OTP mỗi lần. | Báo cáo kiểm kê + danh sách xung đột cần xử lý trước khi migrate |
+| **Thứ 2** | **Kiểm kê & chuẩn bị.** Chạy các câu SQL kiểm kê (chỉ đọc, `PRODUCTION_RUNBOOK.md` mục 4.1) trên cả hai Lab: đếm connection/user/dataset/dashboard hiện có, phát hiện trùng tên connection, trùng email/username, user tồn tại ở cả hai Lab nhưng khác role. Xác nhận `AUTH_TYPE`, `AUTH_ROLES_SYNC_AT_LOGIN` của Lab 2. Xác nhận Lab 1/Lab 2 dùng **cùng `SECRET_KEY`** hay khác (ảnh hưởng cách giải mã mật khẩu connection). Tạo user kỹ thuật tạm để script chạy được không cần OTP mỗi lần. | Báo cáo kiểm kê + danh sách xung đột cần xử lý trước khi migrate |
 | **Thứ 3** | **Backup & rehearsal (môi trường lab/staging).** Backup metadata Lab 2 thật (mysqldump). Diễn tập toàn bộ luồng Bước 2 → 8 trên bản sao/staging giống production nhất có thể, để phát hiện lỗi trước khi đụng vào Lab 2 thật. | Bản backup Lab 2 + log diễn tập, danh sách lỗi phát sinh (nếu có) đã xử lý xong |
 | **Thứ 4** | **Migrate role & user (Lab 2 thật).** Bước 2b (role tự tạo, nếu có) rồi Bước 3 (user). Đối chiếu ngay: số user thêm mới đúng bằng số user Lab 1 không trùng username với Lab 2; user trùng username bị bỏ qua đúng như dự kiến (không sửa gì ở Lab 2). | Lab 2 có đủ user + role của Lab 1, chưa có connection/dashboard mới |
 | **Thứ 5** | **Migrate connection, dataset, dashboard (Bước 4, 5).** Xuất mật khẩu 42 connection từ Lab 1 (giải mã), import 2 file export vào Lab 2 (mã hoá lại bằng key Lab 2), xoá ngay file mật khẩu. Vá cờ published của dashboard. | Lab 2 có đủ 42+5 connection, 503 dataset, toàn bộ dashboard/chart của Lab 1 |
@@ -156,7 +156,7 @@ Toàn bộ luồng ở mục 5 đã được dựng và chạy thử trên máy 
 |---|---|---|---|
 | 1 | Quyền của role vào từng dataset/database (không phải quyền chung chung) không tự động chuyển được | User dùng role tự tạo hoặc Gamma có thể thấy **0 dataset** sau migrate dù connection đã có | Cấp lại quyền này bằng tay (hoặc script bổ sung) sau Bước 4, kiểm tra bằng cách đăng nhập thử một user Gamma |
 | 2 | Owner của dashboard/dataset đổi thành người chạy import, không giữ owner gốc | User Alpha không chỉnh sửa được dashboard của chính mình | Map lại owner theo username sau khi import (cần thêm script, hiện README có nêu nhưng chưa xây) |
-| 3 | Alerts & Reports, RLS, CSS template, annotation layer, tab SQL Lab đang mở, log, favorite, short link **không di chuyển** | Người dùng mất các cấu hình này nếu có sử dụng | Kiểm kê trước bằng `preflight_inventory.py`; hiện tại Lab 1 xác nhận Alerts & Reports tắt và RLS không có record nên rủi ro này thấp với production hiện tại |
+| 3 | Alerts & Reports, RLS, CSS template, annotation layer, tab SQL Lab đang mở, log, favorite, short link **không di chuyển** | Người dùng mất các cấu hình này nếu có sử dụng | Kiểm kê trước bằng SQL trực tiếp (`PRODUCTION_RUNBOOK.md` mục 4.1); hiện tại Lab 1 xác nhận Alerts & Reports tắt và RLS không có record nên rủi ro này thấp với production hiện tại |
 | 4 | Đăng nhập LDAP + OTP khiến việc tự động hoá (login qua API/UI) khó thực hiện | Không thể chạy các bước import qua kịch bản cần đăng nhập lặp lại | Toàn bộ import/copy chạy **trong container**, không qua HTTP nên không cần OTP; chỉ thao tác qua UI (xem lại kết quả) mới cần đăng nhập, và đó là thao tác một lần của người thực hiện |
 | 5 | `SECRET_KEY` khác nhau giữa hai Lab | Không ảnh hưởng vì import giải mã ở Lab 1 và mã hoá lại ở Lab 2 — nhưng cần xác nhận trước, nếu về sau đổi cách làm (dump/restore trực tiếp) thì sẽ hỏng | Xác nhận `SECRET_KEY` mỗi Lab ở bước kiểm kê (Thứ 2); giữ nguyên cách làm export/import, không chuyển sang dump/restore |
 | 6 | Trùng tên connection giữa hai Lab nhưng là hai connection khác nhau (khác UUID) | Import báo lỗi trùng tên, dừng giữa chừng | Phát hiện trước ở bước kiểm kê (Thứ 2); đổi tên một bên trước khi import |

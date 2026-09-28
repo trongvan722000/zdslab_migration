@@ -34,7 +34,7 @@ Chạy lệnh này **bên trong** container (nếu Docker) hoặc sau khi `conda
 
 | Bước (RFC mục 5) | Script | Chạy ở | Cần đăng nhập web? |
 |---|---|---|---|
-| 0. Kiểm kê | `preflight_inventory.py` | Lab 1 + Lab 2 | Không |
+| 0. Kiểm kê | SQL trực tiếp trên metadata (PRODUCTION_RUNBOOK mục 4.1) | Lab 1 + Lab 2 | Không |
 | 1. Backup Lab 2 | `mysqldump` + `verify_merge.py snapshot` | Lab 2 | Không |
 | 2. Export connection/dataset/dashboard | `superset export-datasources`, `superset export-dashboards` | Lab 1 | Không |
 | 2b. Role tự tạo (nếu có) | `fab export-roles` → lọc → `fab import-roles` | Lab 1 rồi Lab 2 | Không |
@@ -72,10 +72,9 @@ Script cần: `SQLAlchemy`, `requests`, `PyYAML`, `pymysql` (hoặc `mysqlclient
 > Toàn bộ lệnh dưới viết dạng Docker (`docker exec <C> ...`). Nếu bare-metal, thay bằng `ssh <host> '<đường dẫn python của venv> /tmp/<script>.py'` (giữ nguyên tham số và biến môi trường, đặt trước lệnh bằng `export`).
 
 ```bash
-# --- Bước 0: kiểm kê, không sửa gì ---
-docker exec --env-file migration.env <C1> python /tmp/preflight_inventory.py
-docker exec --env-file migration.env <C2> python /tmp/preflight_inventory.py
-docker exec --env-file migration.env <C2> python /tmp/preflight_inventory.py compare
+# --- Bước 0: kiểm kê, không sửa gì (câu SQL đầy đủ: PRODUCTION_RUNBOOK.md mục 4.1) ---
+mysql -h <host_meta_lab1> -u <user_ro> -p <db_meta_lab1> -e "SELECT COUNT(*) FROM ab_user; SELECT COUNT(*) FROM dbs;"
+mysql -h <host_meta_lab2> -u <user> -p <db_meta_lab2> -e "SELECT COUNT(*) FROM ab_user; SELECT COUNT(*) FROM dbs;"
 
 # --- Bước 1: backup Lab 2 (bắt buộc, không có thì dừng) ---
 mysqldump -h <host_meta_lab2> -u <user> -p --single-transaction --set-gtid-purged=OFF \

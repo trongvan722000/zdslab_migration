@@ -214,19 +214,17 @@ Hai lệnh export ở Lab 1:
 
 Vì file dashboard đã kèm dataset và connection nên hai file trùng nhau một phần. File `datasources.zip` cần thiết để lấy thêm dataset/connection **không nằm trong dashboard nào**. Import cả hai vẫn an toàn nhờ UUID.
 
-### 6.1. Vì sao dùng REST API để import, không dùng lệnh `superset import-dashboards`
+### 6.1. Vì sao import trực tiếp trong tiến trình, không dùng lệnh `superset import-dashboards` hay REST API
 
 - File export **không chứa mật khẩu connection**.
 - Lệnh CLI `import-dashboards` / `import-datasources` **không cho truyền mật khẩu**, nên bị từ chối ở bước validate (đã thử, lỗi `CommandInvalidError`).
-- API `POST /api/v1/dataset/import/` và `POST /api/v1/dashboard/import/` nhận thêm trường `passwords` (JSON `{"databases/<file>.yaml": "mật khẩu"}`) và `overwrite`.
+- Cách chính thức còn lại của Superset là REST API: `POST /api/v1/dataset/import/` và `POST /api/v1/dashboard/import/` nhận thêm trường `passwords` (JSON `{"databases/<file>.yaml": "mật khẩu"}`) và `overwrite` — nhưng gọi API thì phải **đăng nhập trước** (token), khó tự động hoá khi mật khẩu đăng nhập là OTP (mục 3.3).
 
-**Cách khác không cần đăng nhập:** `fake_data/import_bundle_direct.py` gọi thẳng lệnh import của Superset bên trong ứng dụng (kèm mật khẩu), nên không qua web, không cần đăng nhập/OTP/token và không dính timeout HTTP; đã thử trên lab, là cách khuyến nghị cho production (xem PRODUCTION_RUNBOOK mục 3.3). Bản API dưới đây vẫn dùng được khi tiện.
-
-`fake_data/import_bundle.py` là bản bọc quanh API đó: đăng nhập, đọc ZIP để biết có những connection nào, gửi ZIP **kèm** mật khẩu. **File ZIP không bị sửa**; mật khẩu đi ở phần riêng của yêu cầu, Lab 2 nhận rồi tự mã hoá và lưu vào metadata của nó. Ở công ty có thể thay bằng giao diện web (Dashboards → Import, Superset sẽ hỏi mật khẩu) hoặc tự gọi API; script chỉ là một cách.
+**Cách dùng trong repo này:** `fake_data/import_bundle_direct.py` gọi thẳng lệnh import của Superset (chính là đoạn code xử lý bên trong hai API endpoint trên) ngay trong tiến trình ứng dụng, kèm `passwords`. Không qua web, không cần đăng nhập/OTP/token, không dính timeout HTTP. Đã thử trên lab, là cách khuyến nghị duy nhất cho production (xem PRODUCTION_RUNBOOK mục 3.3). **File ZIP không bị sửa**; mật khẩu đi riêng, Lab 2 nhận rồi tự mã hoá và lưu vào metadata của nó.
 
 ### 6.2. Chọn mật khẩu cho từng connection
 
-`import_bundle.py` tìm mật khẩu theo **tên connection**, theo thứ tự ưu tiên:
+`import_bundle_direct.py` tìm mật khẩu theo **tên connection**, theo thứ tự ưu tiên:
 1. File JSON tại đường dẫn trong `DB_PASSWORDS_FILE` (`{"MySQL - Sales": "pwd1", ...}`), dùng khi có nhiều connection.
 2. Biến `DB_PASSWORDS_JSON` (cùng dạng, gõ trực tiếp).
 3. Biến `DB_PASSWORD`: dùng cho mọi connection không có trong hai nguồn trên (mặc định `reader_pwd`, chỉ đúng trong lab vì cả 5 connection dùng chung tài khoản `reader`).
@@ -283,8 +281,8 @@ Ghi chú: nếu Lab 2 trống và cùng version thì phương án A (dump/restor
 
 | Cần chuyển | Đường đi | Công cụ |
 |---|---|---|
-| Connection + dataset | Export ZIP → import API kèm mật khẩu | `superset export-datasources` + `import_bundle.py dataset` |
-| Dashboard + chart (kèm dataset, connection liên quan) | Export ZIP → import API kèm mật khẩu | `superset export-dashboards` + `import_bundle.py dashboard` |
+| Connection + dataset | Export ZIP → import trực tiếp trong tiến trình kèm mật khẩu | `superset export-datasources` + `import_bundle_direct.py dataset` |
+| Dashboard + chart (kèm dataset, connection liên quan) | Export ZIP → import trực tiếp trong tiến trình kèm mật khẩu | `superset export-dashboards` + `import_bundle_direct.py dashboard` |
 | Mật khẩu connection | Giải mã ở Lab 1 → gửi lúc import → Lab 2 mã hoá lại | `export_db_passwords.py` + `DB_PASSWORDS_FILE` |
 | User (+ role) | Copy dòng, giữ hash, map role theo tên | `sync_users.py` |
 | Trạng thái xuất bản dashboard | Copy cờ theo UUID | `sync_dashboard_published.py` |
@@ -470,7 +468,7 @@ Mong đợi: `added 8 ...` và `skipped 1 (already in target): admin`.
 - Role gán theo **tên role**; role không tồn tại ở Lab 2 sẽ in cảnh báo.
 - Nguồn đọc từ biến `SRC_META_URI` (mặc định trỏ tới metadata `mysql_lab1`).
 - **Chỉ ghi vào 2 bảng: `ab_user` và `ab_user_role`** (đã đo: +8 dòng mỗi bảng). Không tạo role, không ghi `ab_permission*` (danh mục quyền do Superset tự tạo) và không chép quyền gắn vào role (`ab_permission_view_role`, bẫy #18).
-- User đã tồn tại ở Lab 2 bị bỏ qua hoàn toàn (kể cả role); `preflight_inventory.py compare` liệt kê những user khác role giữa hai Lab.
+- User đã tồn tại ở Lab 2 bị bỏ qua hoàn toàn (kể cả role); so sánh role từng user giữa hai Lab bằng SQL trực tiếp (câu lệnh ở PRODUCTION_RUNBOOK mục 7.4) để biết ai cần sửa tay.
 
 ### Bước 4. Import connection, dataset, chart, dashboard vào Lab 2
 
@@ -497,7 +495,7 @@ docker exec superset_lab1 rm -f /tmp/passwords.json
 docker exec superset_lab2 rm -f /tmp/passwords.json
 ```
 
-Mỗi lệnh import phải in `... import (direct): OK, N connection(s) in bundle`. Script chạy Superset import **ngay trong container** (không đăng nhập, không HTTP); tham số cuối (`admin`) là user đã tồn tại làm owner. Bản gọi API cũ vẫn còn: `fake_data/import_bundle.py`.
+Mỗi lệnh import phải in `... import (direct): OK, N connection(s) in bundle`. Script chạy Superset import **ngay trong container** (không đăng nhập, không HTTP); tham số cuối (`admin`) là user đã tồn tại làm owner.
 - Ghi ra file (không dùng stdout) vì Superset in log ra stdout và làm hỏng JSON.
 - `chown superset` là bắt buộc: `docker cp` giữ quyền `600` của người tạo, nên không có nó thì báo `Permission denied`.
 - Object của Lab 1 được **thêm mới** vào Lab 2 với ID mới. Object cũ của Lab 2 **không bị xoá hay sửa**. Object đã từng import (cùng UUID) bị ghi đè bằng bản Lab 1, nên chạy lại không tạo trùng.
@@ -599,7 +597,7 @@ Những vấn đề này gặp thật khi làm lab; nhiều cái sẽ gặp lạ
 | 2 | **Lỗi collation MySQL 8** làm API danh sách chết với user bị lọc theo quyền | `422 Illegal mix of collations (utf8mb4_bin,NONE) and (binary,IGNORABLE)`; trang Database Connections **trống** | Cột tạo với `utf8mb4_unicode_ci` không khớp collation mặc định của kết nối MySQL 8 (`utf8mb4_0900_ai_ci`). Chỉ lộ với user đi qua câu query lọc theo quyền datasource (Gamma/sql_lab trong lab); admin và Alpha (có toàn quyền datasource) không đi qua câu đó nên không thấy lỗi. Đã tái hiện bằng câu SQL riêng: cột `unicode_ci` lỗi, cột dùng collation mặc định thì không | Dùng collation mặc định của MySQL 8 cho metadata DB (đã bỏ `--collation-server`). **Nếu metadata DB thật có collation khác**, kiểm tra bằng cách đăng nhập user không-admin |
 | 3 | **Trang Connection trống** dù dữ liệu còn | Danh sách trống với một số user | Role Gamma / sql_lab **không có quyền** xem connection (đúng theo thiết kế); cộng với cookie dùng chung giữa hai lab | Đăng nhập admin để kiểm tra; đặt cookie riêng cho từng lab |
 | 4 | **Cookie dùng chung giữa hai lab** | Đăng nhập Lab 2 làm Lab 1 "đổi user" | Cookie gắn theo host, không theo port; hai lab cùng `localhost` cùng `SECRET_KEY` | `SESSION_COOKIE_NAME` riêng cho mỗi lab; xoá cookie `localhost` nếu thấy lạ |
-| 5 | **CLI import bị từ chối** | `CommandInvalidError` khi `superset import-dashboards` | ZIP không có mật khẩu connection; CLI không cho truyền | Dùng REST API import kèm `passwords` (`import_bundle.py`) |
+| 5 | **CLI import bị từ chối** | `CommandInvalidError` khi `superset import-dashboards` | ZIP không có mật khẩu connection; CLI không cho truyền | Import trực tiếp trong tiến trình kèm `passwords` (`import_bundle_direct.py`) |
 | 6 | **Thiếu driver MySQL** | Chart MySQL: `No module named 'MySQLdb'` | Engine spec MySQL `import MySQLdb`; image mỏng không có; PyMySQL không đủ | Cài `mysqlclient` |
 | 7 | **`pip install` không vào venv của 5.0.0** | Cài xong vẫn `No module named psycopg2` | 5.0.0 dùng `/app/.venv`; `pip` của hệ thống cài sang Python khác | Dùng `uv pip install --python <python trong venv>` |
 | 8 | **Import báo `offset: Field may not be null`** | `HTTP 500`/validate fail khi import dataset | Cột `tables.offset` bị để NULL (do script seed chèn thẳng); Superset thật luôn ghi 0 | Sửa seed (`offset=0`). **Ở production:** nếu dữ liệu cũ có `offset` NULL sẽ gặp lại; cập nhật `UPDATE tables SET offset=0 WHERE offset IS NULL` |
@@ -712,14 +710,11 @@ backup/                             nơi chứa export ZIP, backup, snapshot (mo
 | `fake_data/smoke_test_api.py` | Cả hai | Đăng nhập qua API, đếm object, chạy mọi chart |
 | `fake_data/check_connections.py` | Lab 2 | Mở thử từng connection (giải mã mật khẩu bằng `SECRET_KEY`) |
 | `fake_data/export_db_passwords.py` | Lab 1 | Xuất `{tên connection: mật khẩu}` ra JSON, dùng `d.password` tự giải mã |
-| `fake_data/import_bundle_direct.py` | Lab 2 | Import ZIP **trực tiếp trong ứng dụng** (không đăng nhập, không HTTP) kèm mật khẩu từng connection. **Khuyến nghị** |
-| `fake_data/import_bundle.py` | Lab 2 | Import ZIP qua REST API kèm mật khẩu từng connection |
+| `fake_data/import_bundle_direct.py` | Lab 2 | Import ZIP **trực tiếp trong ứng dụng** (không đăng nhập, không HTTP) kèm mật khẩu từng connection. Cách duy nhất dùng trong repo này |
 | `fake_data/sync_users.py` | Lab 2 | Thêm user Lab 1 (theo `username`), giữ hash, gán role theo tên |
 | `fake_data/sync_dashboard_published.py` | Lab 2 | Chép cờ `published` theo UUID |
 | `fake_data/sync_query_history.py` | Lab 2 | Copy lịch sử query + saved query, map user/connection |
 | `fake_data/verify_merge.py` | Lab 2 | `snapshot` (trước) và `check` (sau) so sánh theo tên |
-| `fake_data/preflight_inventory.py` | Lab 1 / Lab 2 | **Chỉ đọc.** Kiểm kê metadata: số lượng, connection, role tự tạo, thứ không được chuyển, lỗi dữ liệu; chế độ `compare` báo xung đột nguồn/đích |
-| `fake_data/id_mapping.py` | Lab 2 | Xuất CSV ánh xạ ID cũ → mới của dashboard và chart (để xử lý link) |
 | `scripts/merge_lab1_to_lab2.sh` | Máy host | Chạy tự động Bước 1 → 7 |
 | `scripts/verify.sh` | Máy host | Bước 8: kiểm chứng đầy đủ |
 | `scripts/reset_lab2.sh` | Máy host | Đưa Lab 2 về trạng thái trước merge |
@@ -732,10 +727,10 @@ Các script `sync_*` và `verify_merge` đọc metadata của Lab 1 qua biến `
 `datasources.zip` **đã chứa** dataset *và* connection (Superset gọi cặp này là "datasources"). Còn user không có lệnh export, nên ta copy dòng (mục 7).
 
 **"Import bundle" có nghĩa là gì?**
-Nạp file ZIP export vào Superset đích. Điểm vướng là ZIP không có mật khẩu connection, nên phải kèm mật khẩu lúc nộp. `import_bundle.py` chỉ là bản bọc gọi API import.
+Nạp file ZIP export vào Superset đích. Điểm vướng là ZIP không có mật khẩu connection, nên phải kèm mật khẩu lúc nộp. `import_bundle_direct.py` gọi thẳng lệnh import của Superset trong tiến trình, kèm mật khẩu.
 
-**`import_bundle.py` có điền mật khẩu vào file ZIP không?**
-Không. ZIP giữ nguyên. Mật khẩu đi ở phần riêng của yêu cầu, Lab 2 nhận rồi tự mã hoá và lưu vào metadata của nó.
+**`import_bundle_direct.py` có điền mật khẩu vào file ZIP không?**
+Không. ZIP giữ nguyên. Mật khẩu đi ở phần riêng (tham số `passwords` truyền cho lệnh import), Lab 2 nhận rồi tự mã hoá và lưu vào metadata của nó.
 
 **`DB_PASSWORD=reader_pwd` là gì?**
 Chỉ là mật khẩu của tài khoản `reader` do lab tạo. Ở công ty phải dùng mật khẩu thật của từng connection (`DB_PASSWORDS_FILE`).

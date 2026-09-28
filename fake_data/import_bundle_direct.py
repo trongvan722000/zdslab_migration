@@ -1,6 +1,6 @@
 """Import a Superset export ZIP by calling Superset's own import command INSIDE the app, with no web/API call.
 
-Why this exists: the REST import (import_bundle.py) needs a login. When login is LDAP + OTP, or when a proxy/gunicorn
+Why this exists: importing via Superset's REST API needs a login first. When login is LDAP + OTP, or when a proxy/gunicorn
 timeout could cut a big import, that is painful. Running the same command in-process needs no login, no token and
 has no HTTP timeout. (The plain CLI `superset import-dashboards` cannot be used: it has no way to pass the database
 passwords that exports never contain. This script passes them.)
