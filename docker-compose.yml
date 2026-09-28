@@ -1,0 +1,121 @@
+# Lab 1 = source, Lab 2 = migration target. Only Superset METADATA is migrated;
+# the data stays where it is and both labs query the same data servers.
+#
+#   mysql_lab1     : superset_meta (Lab 1 metadata) + sales, crm (data)
+#   postgres_lab1  : finance, warehouse, marketing (data)
+#   superset_lab1  : Superset ${SUPERSET_VERSION_LAB1:-2.1.1}, metadata -> mysql_lab1/superset_meta   http://localhost:8088
+#   mysql_lab2     : superset_meta (Lab 2 metadata, empty)
+#   superset_lab2  : Superset ${SUPERSET_VERSION_LAB2:-5.0.0}, metadata -> mysql_lab2/superset_meta   http://localhost:8089
+
+x-superset-common: &superset-common
+  restart: unless-stopped
+  command: ["/app/docker-init/bootstrap.sh"]
+  networks: [superset_lab_net]
+  volumes:
+    - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    - ./superset/bootstrap.sh:/app/docker-init/bootstrap.sh:ro
+    - ./fake_data:/app/fake_data:ro
+
+x-mysql-common: &mysql-common
+  image: mysql:8.0
+  restart: unless-stopped
+  command: ["--character-set-server=utf8mb4"]
+  environment:
+    MYSQL_ROOT_PASSWORD: root
+  healthcheck:
+    test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"]
+    interval: 5s
+    timeout: 5s
+    retries: 30
+  networks: [superset_lab_net]
+
+x-secret: &secret
+  # Must be identical on both labs: dbs.password / encrypted_extra are encrypted with it.
+  SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-zdslab_shared_secret_key_change_me_0123456789}
+
+services:
+  # ============================ LAB 1 (source) ============================
+  mysql_lab1:
+    <<: *mysql-common
+    container_name: mysql_lab1
+    ports: ["3307:3306"]
+    volumes:
+      - mysql_lab1:/var/lib/mysql
+      - ./initdb/mysql/00_superset_meta.sql:/docker-entrypoint-initdb.d/00_superset_meta.sql:ro
+      - ./initdb/mysql/10_lab1_data.sql:/docker-entrypoint-initdb.d/10_lab1_data.sql:ro
+      - ./backup:/backup
+
+  postgres_lab1:
+    image: postgres:15
+    container_name: postgres_lab1
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      # TCP on purpose: during init scripts the temp server only listens on the unix socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    ports: ["5433:5432"]
+    volumes:
+      - pg_lab1:/var/lib/postgresql/data
+      - ./initdb/postgres/10_lab1_data.sql:/docker-entrypoint-initdb.d/10_lab1_data.sql:ro
+    networks: [superset_lab_net]
+
+  superset_lab1:
+    <<: *superset-common
+    container_name: superset_lab1
+    # 2.1.1 is only published for amd64: on Apple Silicon it runs under emulation (slower start-up).
+    platform: linux/amd64
+    build:
+      context: ./docker
+      platforms: [linux/amd64]
+      args:
+        SUPERSET_VERSION: ${SUPERSET_VERSION_LAB1:-2.1.1}
+    image: superset-lab:${SUPERSET_VERSION_LAB1:-2.1.1}
+    depends_on:
+      mysql_lab1: { condition: service_healthy }
+      postgres_lab1: { condition: service_healthy }
+    ports: ["8088:8088"]
+    environment:
+      <<: *secret
+      LAB_NAME: lab1
+      META_DB_URI: mysql+mysqldb://superset:superset@mysql_lab1:3306/superset_meta?charset=utf8mb4
+
+  # ============================ LAB 2 (target) ============================
+  mysql_lab2:
+    <<: *mysql-common
+    container_name: mysql_lab2
+    ports: ["3308:3306"]
+    volumes:
+      - mysql_lab2:/var/lib/mysql
+      - ./initdb/mysql/00_superset_meta.sql:/docker-entrypoint-initdb.d/00_superset_meta.sql:ro
+      - ./backup:/backup
+
+  superset_lab2:
+    <<: *superset-common
+    container_name: superset_lab2
+    build:
+      context: ./docker
+      args:
+        SUPERSET_VERSION: ${SUPERSET_VERSION_LAB2:-5.0.0}
+    image: superset-lab:${SUPERSET_VERSION_LAB2:-5.0.0}
+    depends_on:
+      mysql_lab2: { condition: service_healthy }
+      mysql_lab1: { condition: service_healthy }
+      postgres_lab1: { condition: service_healthy }
+    ports: ["8089:8088"]
+    environment:
+      <<: *secret
+      LAB_NAME: lab2
+      META_DB_URI: mysql+mysqldb://superset:superset@mysql_lab2:3306/superset_meta?charset=utf8mb4
+
+volumes:
+  mysql_lab1:
+  pg_lab1:
+  mysql_lab2:
+
+networks:
+  superset_lab_net:
