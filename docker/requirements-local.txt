@@ -1,0 +1,3 @@
+# Installed into both Superset images by docker/Dockerfile.
+# Driver for the mysql+pymysql:// connections migrated from Lab 1 (Lab 2's 5.0.0 image does not ship it).
+PyMySQL==1.1.1

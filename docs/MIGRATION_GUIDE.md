@@ -151,7 +151,7 @@ Kiểu cột này **tự mã hoá khi ghi, tự giải mã khi đọc** bằng `
 
 | Nơi | Nội dung |
 |---|---|
-| `docker-compose.yml` | `SUPERSET_SECRET_KEY_LAB1` / `SUPERSET_SECRET_KEY_LAB2`, mỗi Superset một biến riêng, **giá trị khác nhau** |
+| `.env` (mẫu: `.env.example`) → `docker-compose.yml` | `SUPERSET_SECRET_KEY_LAB1` / `SUPERSET_SECRET_KEY_LAB2`, mỗi Superset một biến riêng, **giá trị khác nhau**, bắt buộc (không có giá trị mặc định) |
 | `superset/superset_config.py` | `SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]` |
 
 Chuỗi: biến môi trường của container → `superset_config.py` đọc thành `SECRET_KEY` → Superset dùng làm chìa khoá.
@@ -571,7 +571,8 @@ Nếu merge làm hỏng Lab 2, khôi phục từ bản backup ở Bước 1:
 docker compose stop superset_lab2
 docker exec postgres_lab2 dropdb -U postgres superset_meta
 docker exec postgres_lab2 createdb -U postgres -O superset superset_meta
-docker exec postgres_lab2 sh -c "psql -U postgres -d superset_meta -f /backup/lab2_before_merge.sql"
+# -U superset: dump dùng --no-owner, restore bằng postgres thì bảng thuộc postgres và Superset bị permission denied
+docker exec postgres_lab2 psql -U superset -d superset_meta -v ON_ERROR_STOP=1 -f /backup/lab2_before_merge.sql
 docker compose start superset_lab2
 ```
 

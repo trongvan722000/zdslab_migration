@@ -1,12 +1,13 @@
 # Lab 1 = source, Lab 2 = migration target. Only Superset METADATA is migrated;
 # the data stays where it is and both labs query the same data servers.
-# Real environment: Lab 1 metadata is MySQL, Lab 2 metadata is Postgres (different engines on purpose).
+# Real environment: Lab 1 metadata is MariaDB 10.3.32 (MySQL protocol, mysql:// URIs), Lab 2 metadata is
+# Postgres (different engines on purpose).
 #
-#   mysql_lab1     : superset_meta (Lab 1 metadata, MySQL) + sales, crm (data)
+#   mysql_lab1     : superset_meta (Lab 1 metadata, MariaDB) + sales, crm (data)
 #   postgres_lab1  : finance, warehouse, marketing (data)
-#   superset_lab1  : Superset ${SUPERSET_VERSION_LAB1:-2.1.1}, metadata -> mysql_lab1/superset_meta      http://localhost:8088
+#   superset_lab1  : Superset ${SUPERSET_VERSION_LAB1:-2.1.1}, metadata -> mysql_lab1/superset_meta      http://localhost:${SUPERSET_LAB1_PORT:-8088}
 #   postgres_lab2  : superset_meta (Lab 2 metadata, Postgres, empty)
-#   superset_lab2  : Superset ${SUPERSET_VERSION_LAB2:-5.0.0}, metadata -> postgres_lab2/superset_meta   http://localhost:8089
+#   superset_lab2  : Superset ${SUPERSET_VERSION_LAB2:-5.0.0}, metadata -> postgres_lab2/superset_meta   http://localhost:${SUPERSET_LAB2_PORT:-8089}
 
 x-superset-common: &superset-common
   restart: unless-stopped
@@ -14,11 +15,16 @@ x-superset-common: &superset-common
   networks: [superset_lab_net]
   volumes:
     - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
-    - ./superset/bootstrap.sh:/app/docker-init/bootstrap.sh:ro
+    ## bootstrap chỉ chạy lần đầu để khởi tạo user, role
+    - ./superset/bootstrap.sh:/app/docker-init/bootstrap.sh:ro 
     - ./fake_data:/app/fake_data:ro
+    - ./sync:/app/sync:ro
 
 x-mysql-common: &mysql-common
-  image: mysql:8.0
+  # Same engine/version as the real Lab 1 metadata server. Not MySQL 8: the real dump contains MariaDB-only
+  # SEQUENCE tables (ab_*_id_seq) that MySQL cannot restore. Switching engines needs a fresh volume
+  # (a MySQL 8 datadir cannot be opened by MariaDB and vice versa).
+  image: ${LAB1_META_IMAGE:-mariadb:10.3.32}
   restart: unless-stopped
   command: ["--character-set-server=utf8mb4"]
   environment:
@@ -35,7 +41,7 @@ services:
   mysql_lab1:
     <<: *mysql-common
     container_name: mysql_lab1
-    ports: ["3307:3306"]
+    ports: ["${MYSQL_LAB1_PORT:-3307}:3306"]
     volumes:
       - mysql_lab1:/var/lib/mysql
       - ./initdb/mysql/00_superset_meta.sql:/docker-entrypoint-initdb.d/00_superset_meta.sql:ro
@@ -55,7 +61,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-    ports: ["5433:5432"]
+    ports: ["${POSTGRES_LAB1_PORT:-5433}:5432"]
     volumes:
       - pg_lab1:/var/lib/postgresql/data
       - ./initdb/postgres/10_lab1_data.sql:/docker-entrypoint-initdb.d/10_lab1_data.sql:ro
@@ -71,16 +77,18 @@ services:
       platforms: [linux/amd64]
       args:
         SUPERSET_VERSION: ${SUPERSET_VERSION_LAB1:-2.1.1}
+        DRIVER_SOURCE_IMAGE: ${SUPERSET_DRIVER_SOURCE_IMAGE:-apachesuperset.docker.scarf.sh/apache/superset:4.1.1-dev}
     image: superset-lab:${SUPERSET_VERSION_LAB1:-2.1.1}
     depends_on:
       mysql_lab1: { condition: service_healthy }
       postgres_lab1: { condition: service_healthy }
-    ports: ["8088:8088"]
+    ports: ["${SUPERSET_LAB1_PORT:-8088}:8088"]
     environment:
       # Deliberately DIFFERENT from Lab 2's key, like real production: dbs.password / encrypted_extra
       # are decrypted with THIS key inside Lab 1's own process (export_db_passwords.py), then re-encrypted
       # with Lab 2's own key inside Lab 2's process (import_bundle_direct.py) - the two keys never need to match.
-      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY_LAB1:-zdslab1_secret_key_change_me_1111111111}
+      # No default on purpose: a missing key must stop `docker compose up`, not silently start with a fake one.
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY_LAB1:?set SUPERSET_SECRET_KEY_LAB1 in .env (cp .env.example .env)}
       LAB_NAME: lab1
       META_DB_URI: mysql+mysqldb://superset:superset@mysql_lab1:3306/superset_meta?charset=utf8mb4
 
@@ -98,7 +106,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-    ports: ["5434:5432"]
+    ports: ["${POSTGRES_LAB2_PORT:-5434}:5432"]
     volumes:
       - pg_lab2:/var/lib/postgresql/data
       - ./initdb/postgres/00_superset_meta_lab2.sql:/docker-entrypoint-initdb.d/00_superset_meta_lab2.sql:ro
@@ -112,14 +120,15 @@ services:
       context: ./docker
       args:
         SUPERSET_VERSION: ${SUPERSET_VERSION_LAB2:-5.0.0}
+        DRIVER_SOURCE_IMAGE: ${SUPERSET_DRIVER_SOURCE_IMAGE:-apachesuperset.docker.scarf.sh/apache/superset:4.1.1-dev}
     image: superset-lab:${SUPERSET_VERSION_LAB2:-5.0.0}
     depends_on:
       postgres_lab2: { condition: service_healthy }
       mysql_lab1: { condition: service_healthy }
       postgres_lab1: { condition: service_healthy }
-    ports: ["8089:8088"]
+    ports: ["${SUPERSET_LAB2_PORT:-8089}:8088"]
     environment:
-      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY_LAB2:-zdslab2_secret_key_change_me_2222222222}
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY_LAB2:?set SUPERSET_SECRET_KEY_LAB2 in .env (cp .env.example .env)}
       LAB_NAME: lab2
       META_DB_URI: postgresql+psycopg2://superset:superset@postgres_lab2:5432/superset_meta
 

@@ -1,7 +1,7 @@
 """Compare source (Lab 1) and target (Lab 2) metadata by NAME, before/after a merge.
 
-    docker exec superset_lab2 python /app/fake_data/verify_merge.py snapshot > backup/lab2_before.json
-    docker exec -i superset_lab2 python /app/fake_data/verify_merge.py check < backup/lab2_before.json
+    docker exec superset_lab2 python /app/sync/verify_merge.py snapshot > backup/lab2_before.json
+    docker exec -i superset_lab2 python /app/sync/verify_merge.py check < backup/lab2_before.json
 
 `check` fails if (a) anything Lab 2 had before the merge is gone, or (b) anything from Lab 1 is missing in Lab 2.
 """

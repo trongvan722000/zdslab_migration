@@ -1,5 +1,10 @@
 -- mysql_lab1 only: real data DBs that Superset (both labs) queries.
-SET SESSION cte_max_recursion_depth = 10000;
+-- MySQL 8 caps recursive CTEs at 1000 rows by default; MariaDB (the real Lab 1 engine) has no such
+-- variable (its own limit, max_recursive_iterations, is already huge), so only set it on MySQL.
+SET @raise_cte_limit = IF(VERSION() LIKE '%MariaDB%', 'DO 0', 'SET SESSION cte_max_recursion_depth = 10000');
+PREPARE raise_cte_limit FROM @raise_cte_limit;
+EXECUTE raise_cte_limit;
+DEALLOCATE PREPARE raise_cte_limit;
 
 -- Read-only account used by the Superset connections.
 CREATE USER IF NOT EXISTS 'reader'@'%' IDENTIFIED BY 'reader_pwd';

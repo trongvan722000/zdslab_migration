@@ -3,3 +3,15 @@ backup/*
 
 migration.env
 *.env
+.env
+!.env.example
+
+# Real metadata dumps: contain user password hashes, encrypted connection passwords, internal hosts. Never commit.
+/*.sql
+*_dump_*.sql
+passwords*.json
+
+# OS / Python noise
+.DS_Store
+__pycache__/
+*.pyc

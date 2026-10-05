@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Đọc trước | [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) (lý thuyết, môi trường lab, các bẫy đã gặp). Tài liệu này **không nhắc lại lý thuyết**, chỉ là quy trình làm với hệ thống thật |
-| Nguồn | ZDS Lab 1, Superset **2.1.1**. Metadata: **MySQL** (`zdslab1`, host `.7`). Data: MySQL <db_host_7>, 8, 9 và Postgres |
+| Nguồn | ZDS Lab 1, Superset **2.1.1**. Metadata: **MariaDB 10.3.32** (giao thức MySQL; `zdslab1`, host `.7`). Data: MySQL <db_host_7>, 8, 9 và Postgres |
 | Đích | ZDS Lab 2, Superset **5.0.0**. Metadata: **Postgres** (khác engine với Lab 1 — đã xác nhận). Data: MySQL <db_host_7>, 8; Postgres; StarRocks <sr_host_6>, 11, 12 |
 | Quy mô Lab 1 | 42 connection, 35 schema, 503 dataset, 160 user (149 active, 11 inactive) |
 | Quy mô Lab 2 | 5 connection (đang có người dùng, **phải giữ nguyên**) |
@@ -47,7 +47,7 @@ Tài liệu ZDS LAB chưa nói những điều sau. Chúng quyết định câu 
 | # | Câu hỏi | Vì sao quan trọng | Điền |
 |---|---|---|---|
 | 1 | Superset Lab 1 / Lab 2 chạy bằng gì: **Docker**, systemd, hay Kubernetes? Tên container/host? | Lệnh trong tài liệu dùng dạng `docker exec <container> ...`; với cách khác phải chạy cùng lệnh trong môi trường Python của Superset | |
-| 2 | **Metadata DB** của mỗi Lab nằm ở đâu (host, port, tên database)? **Đã xác nhận loại engine:** Lab 1 = MySQL (config thật: `mysql+pymysql://...@<db_host_7>/zdslab`, tên DB thật là `zdslab` chứ không phải `superset_meta`), **Lab 2 = Postgres** (không phải MySQL như tài liệu này giả định ban đầu). Host/port/tên DB thật của Lab 2 vẫn chưa xác nhận | Cần đúng driver (`psycopg2` cho Lab 2, không phải `mysqlclient`) và đúng chuỗi kết nối để copy dòng (user, lịch sử query, cờ xuất bản). Toàn bộ lệnh `mysqldump`/`mysql -e` trong tài liệu này dành cho Lab 2 phải đổi sang `pg_dump`/`psql` (xem lab đã cập nhật: `postgres_lab2` thay cho `mysql_lab2`) | |
+| 2 | **Metadata DB** của mỗi Lab nằm ở đâu (host, port, tên database)? **Đã xác nhận loại engine:** Lab 1 = MariaDB 10.3.32, giao thức MySQL (config thật: `mysql+pymysql://...@<db_host_7>/zdslab`, tên DB thật là `zdslab` chứ không phải `superset_meta`), **Lab 2 = Postgres** (không phải MySQL như tài liệu này giả định ban đầu). Host/port/tên DB thật của Lab 2 vẫn chưa xác nhận | Cần đúng driver (`psycopg2` cho Lab 2, không phải `mysqlclient`) và đúng chuỗi kết nối để copy dòng (user, lịch sử query, cờ xuất bản). Toàn bộ lệnh `mysqldump`/`mysql -e` trong tài liệu này dành cho Lab 2 phải đổi sang `pg_dump`/`psql` (xem lab đã cập nhật: `postgres_lab2` thay cho `mysql_lab2`) | |
 | 3 | Kiểu **đăng nhập**: tài khoản trong DB, **LDAP**, hay OAuth/SSO? Cả hai Lab có giống nhau không? | Cách user khớp nhau (mục 4.2). **Import không phụ thuộc đăng nhập** nếu dùng `import_bundle_direct.py` (mục 3.3); chỉ `smoke_test_api.py` và cách import bằng API cần đăng nhập (với LDAP + OTP thì phức tạp) | |
 | 4 | `SECRET_KEY` của mỗi Lab lưu ở đâu (file `superset_config.py`, biến môi trường, secret manager)? | `export_db_passwords.py` cần chạy trong môi trường Lab 1 đã nạp đúng key | |
 | 5 | Version **chính xác** (`superset version`) và chuỗi **alembic head** của mỗi Lab | Lab 2 phải ≥ Lab 1 | |
@@ -66,7 +66,7 @@ Tài liệu ZDS LAB chưa nói những điều sau. Chúng quyết định câu 
 | List Roles ở Lab 1 | **Có role** | Phải xử lý role và quyền của role (mục 4.3-A). Cần biết đó là role tự tạo hay chỉ role mặc định |
 | Cách đăng nhập | Mật khẩu là **mã OTP + Google Authenticator** | Import không cần đăng nhập (mục 3.3). Kiểm tra role bằng dữ liệu, không đăng nhập thay người khác được (mục 8.4) |
 | Cấu hình đăng nhập (đoạn đã xem) | Có `AUTH_USER_REGISTRATION = True`, `AUTH_USER_REGISTRATION_ROLE = "Gamma"`, `AUTH_ROLES_MAPPING = {"*": [...]}`, `AUTH_ROLE = "Gamma"`; `AUTH_TYPE` **không thấy** trong đoạn | Xem mục 4.6 |
-| Loại metadata DB | Lab 1 = **MySQL**, Lab 2 = **Postgres** (khác engine nhau, xác nhận trực tiếp từ người thực hiện) | Mọi lệnh `mysqldump`/`mysql -e` áp dụng cho Lab 2 trong tài liệu này phải đổi sang `pg_dump`/`psql`/`dropdb`/`createdb`; driver kết nối `SRC_META_URI`/`META_DB_URI` cũng khác nhau theo Lab (`mysqlclient` vs `psycopg2`) |
+| Loại metadata DB | Lab 1 = **MariaDB 10.3.32** (giao thức MySQL, có bảng SEQUENCE `ab_*_id_seq` — chỉ restore được vào MariaDB), Lab 2 = **Postgres** (khác engine nhau, xác nhận trực tiếp từ người thực hiện) | Mọi lệnh `mysqldump`/`mysql -e` áp dụng cho Lab 2 trong tài liệu này phải đổi sang `pg_dump`/`psql`/`dropdb`/`createdb`; driver kết nối `SRC_META_URI`/`META_DB_URI` cũng khác nhau theo Lab (`mysqlclient` vs `psycopg2`) |
 
 **Vẫn chưa biết:** `AUTH_TYPE` thật, `AUTH_ROLES_SYNC_AT_LOGIN`, cách triển khai (Docker hay không, xem mục 1), host/port/tên DB thật của metadata Postgres Lab 2 (mục 2).
 
@@ -436,7 +436,7 @@ Cảnh báo cho bản sao:
 - **Không chạy Celery/beat** trong bản sao: nếu metadata Lab 2 có báo cáo/cảnh báo định kỳ thì bản sao có thể gửi email/Slack thật.
 - Bản sao sẽ **kết nối thật vào data DB** (chỉ đọc) khi kiểm tra connection và chạy chart; chọn khung giờ ít tải.
 - `superset/superset_config.py` của repo dùng đăng nhập tài khoản DB, **không giống** cấu hình LDAP/SSO thật. Nếu cần diễn tập đăng nhập thật, dùng bản `superset_config.py` thật của Lab 2 (đổi URI, tắt Alerts & Reports).
-- Lab 1 dùng thật (chỉ đọc) làm nguồn, không cần bản sao.
+- Lab 1 dùng thật (chỉ đọc) làm nguồn, không cần bản sao — **trừ khi** muốn diễn tập trên VM/conda thay vì Docker (môi trường sát thật hơn), lúc đó cần dump Lab 1 và restore vào một bản sao riêng: xem [REHEARSAL_VM_CONDA.md](REHEARSAL_VM_CONDA.md).
 
 Diễn tập đạt khi:
 - [ ] Mọi bước ở mục 7 chạy xong, không lỗi.
@@ -759,7 +759,9 @@ psql -h <host_meta_lab2> -U <admin> -d postgres -c "SELECT inet_server_addr(); \
 # 3) Tạo lại DB đúng như lúc đầu (Lab 2 là Postgres), rồi restore
 psql -h <host_meta_lab2> -U <admin> -d postgres -c "DROP DATABASE <db_meta_lab2>;"
 psql -h <host_meta_lab2> -U <admin> -d postgres -c "CREATE DATABASE <db_meta_lab2> OWNER <owner_da_dung_luc_dau>;"
-psql -h <host_meta_lab2> -U <admin> -d <db_meta_lab2> -f lab2_before_<timestamp>.sql
+#    Restore BẰNG user owner (user Superset dùng), KHÔNG bằng admin: dump tạo với --no-owner nên bảng thuộc về
+#    user chạy restore; restore bằng admin thì Superset lỗi "permission denied for table ab_role" và không khởi động được.
+psql -h <host_meta_lab2> -U <owner_da_dung_luc_dau> -d <db_meta_lab2> -v ON_ERROR_STOP=1 -f lab2_before_<timestamp>.sql
 sha256sum -c lab2_before.sha256                     # bản dump dùng để restore không bị đổi
 # 4) Khởi động Lab 2
 # 5) Kiểm tra: số lượng khớp lab2_inventory_before.txt; đăng nhập được; mọi dashboard cũ hiển thị
